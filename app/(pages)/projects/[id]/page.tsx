@@ -10,6 +10,7 @@ import { PreviewPlayer } from "../../../components/editor/player/remotion/Player
 import { MediaFile } from "@/app/types";
 import LeftSidebar from "../../../components/editor/LeftSidebar";
 import RightSidebar from "../../../components/editor/RightSidebar";
+import VideoLoader from "../../../components/editor/VideoLoader";
 import Image from "next/image";
 import { useAuth } from "../../../contexts/AuthContext";
 import { createClient } from "../../../utils/supabase/client";
@@ -101,6 +102,9 @@ export default function Project({ params }: { params: { id: string } }) {
 
     return (
         <div className="flex flex-col h-screen select-none bg-[#0f172a]">
+            {/* Video Loading Progress Bar */}
+            <VideoLoader />
+            
             {/* Loading screen */}
             {isLoading && (
                 <div className="fixed inset-0 flex items-center bg-black bg-opacity-50 justify-center z-50">

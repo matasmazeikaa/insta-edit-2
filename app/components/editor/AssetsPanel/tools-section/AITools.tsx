@@ -2,6 +2,7 @@
 
 import { useAppSelector } from "@/app/store";
 import { setMediaFiles, setTextElements, setFilesID } from "@/app/store/slices/projectSlice";
+import { addVideoLoading, updateVideoProgress, completeVideoLoading, errorVideoLoading } from "@/app/store/slices/loadingSlice";
 import { MediaFile, TextElement } from "@/app/types";
 import { useAppDispatch } from "@/app/store";
 import { useState } from "react";
@@ -25,7 +26,19 @@ export default function AITools() {
 
       // Store the video file for audio extraction
       const audioFileId = crypto.randomUUID();
-      await storeFile(file, audioFileId);
+      
+      // Track loading for the reference video
+      dispatch(addVideoLoading({ fileId: audioFileId, fileName: file.name }));
+      
+      try {
+        await storeFile(file, audioFileId, (progress) => {
+          dispatch(updateVideoProgress({ fileId: audioFileId, progress }));
+        });
+        dispatch(completeVideoLoading({ fileId: audioFileId }));
+      } catch (error: any) {
+        dispatch(errorVideoLoading({ fileId: audioFileId, error: error.message || 'Failed to load video' }));
+        throw error;
+      }
       
       // Update filesID to include the audio file
       const updatedFilesID = [...(filesID || []), audioFileId];

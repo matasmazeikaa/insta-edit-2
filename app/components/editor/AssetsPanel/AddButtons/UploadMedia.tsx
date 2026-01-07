@@ -1,7 +1,8 @@
 "use client";
 
-import { listFiles, useAppDispatch, useAppSelector, uploadProjectFile, store } from "../../../../store";
+import { listFiles, useAppDispatch, useAppSelector, storeFile, store } from "../../../../store";
 import { setMediaFiles, setFilesID } from "../../../../store/slices/projectSlice";
+import { addVideoLoading, updateVideoProgress, completeVideoLoading, errorVideoLoading } from "../../../../store/slices/loadingSlice";
 import { categorizeFile } from "../../../../utils/utils";
 import Image from 'next/image';
 import { useAuth } from "../../../../contexts/AuthContext";
@@ -126,24 +127,57 @@ export default function AddMedia() {
         dispatch(setFilesID(updatedFiles));
         e.target.value = "";
         
-        // Upload files in background and update status
+        // Store files to IndexedDB with progress tracking (for videos only)
         newFiles.forEach(async (file, index) => {
             const fileId = updatedFiles[updatedFiles.length - newFiles.length + index];
-            try {
-                await uploadProjectFile(file, fileId, projectId, user.id);
-                // Update status to ready - get current state to avoid stale updates
-                const currentMediaFiles = store.getState().projectState.mediaFiles;
-                dispatch(setMediaFiles(
-                    currentMediaFiles.map(m => m.fileId === fileId ? { ...m, status: 'ready' as const } : m)
-                ));
-            } catch (error: any) {
-                toast.error(`Failed to upload ${file.name}: ${error.message}`);
-                console.error('Upload error:', error);
-                // Update status to error
-                const currentMediaFiles = store.getState().projectState.mediaFiles;
-                dispatch(setMediaFiles(
-                    currentMediaFiles.map(m => m.fileId === fileId ? { ...m, status: 'error' as const } : m)
-                ));
+            const fileType = categorizeFile(file.type);
+            
+            // Only track loading for videos
+            if (fileType === 'video') {
+                // Add to loading tracker
+                dispatch(addVideoLoading({ fileId, fileName: file.name }));
+                
+                try {
+                    // Store file with progress tracking
+                    await storeFile(file, fileId, (progress) => {
+                        dispatch(updateVideoProgress({ fileId, progress }));
+                    });
+                    
+                    // Mark as completed
+                    dispatch(completeVideoLoading({ fileId }));
+                    
+                    // Update status to ready
+                    const currentMediaFiles = store.getState().projectState.mediaFiles;
+                    dispatch(setMediaFiles(
+                        currentMediaFiles.map(m => m.fileId === fileId ? { ...m, status: 'ready' as const } : m)
+                    ));
+                } catch (error: any) {
+                    toast.error(`Failed to load ${file.name}: ${error.message}`);
+                    console.error('Loading error:', error);
+                    dispatch(errorVideoLoading({ fileId, error: error.message || 'Failed to load video' }));
+                    
+                    // Update status to error
+                    const currentMediaFiles = store.getState().projectState.mediaFiles;
+                    dispatch(setMediaFiles(
+                        currentMediaFiles.map(m => m.fileId === fileId ? { ...m, status: 'error' as const } : m)
+                    ));
+                }
+            } else {
+                // For non-video files, just store without progress tracking
+                try {
+                    await storeFile(file, fileId);
+                    const currentMediaFiles = store.getState().projectState.mediaFiles;
+                    dispatch(setMediaFiles(
+                        currentMediaFiles.map(m => m.fileId === fileId ? { ...m, status: 'ready' as const } : m)
+                    ));
+                } catch (error: any) {
+                    toast.error(`Failed to load ${file.name}: ${error.message}`);
+                    console.error('Loading error:', error);
+                    const currentMediaFiles = store.getState().projectState.mediaFiles;
+                    dispatch(setMediaFiles(
+                        currentMediaFiles.map(m => m.fileId === fileId ? { ...m, status: 'error' as const } : m)
+                    ));
+                }
             }
         });
     };

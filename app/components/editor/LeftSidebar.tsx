@@ -3,7 +3,8 @@
 import { useState } from "react";
 import { useAppSelector, useAppDispatch } from "@/app/store";
 import { setMediaFiles, setFilesID } from "@/app/store/slices/projectSlice";
-import { storeFile, getFile, uploadProjectFile } from "@/app/store";
+import { storeFile, getFile } from "@/app/store";
+import { addVideoLoading, updateVideoProgress, completeVideoLoading, errorVideoLoading } from "@/app/store/slices/loadingSlice";
 import { MediaFile, LibraryItem } from "@/app/types";
 import { FileVideo, Crown, Zap, LayoutGrid, Upload, Library, Sparkles, Music, LogOut, Link as LinkIcon, Loader2, Trash2 } from "lucide-react";
 import AITools from "./AssetsPanel/tools-section/AITools";
@@ -63,12 +64,32 @@ export default function LeftSidebar() {
         // Process each media file
         for (const file of mediaFilesToAdd) {
             const fileId = crypto.randomUUID();
-            
-
-                await storeFile(file, fileId);
-                updatedFiles.push(fileId);
-
             const fileType = categorizeFile(file.type);
+            
+            // Track loading for videos
+            if (fileType === 'video') {
+                dispatch(addVideoLoading({ fileId, fileName: file.name }));
+            }
+            
+            // Store file with progress tracking for videos
+            try {
+                if (fileType === 'video') {
+                    await storeFile(file, fileId, (progress) => {
+                        dispatch(updateVideoProgress({ fileId, progress }));
+                    });
+                    dispatch(completeVideoLoading({ fileId }));
+                } else {
+                    await storeFile(file, fileId);
+                }
+                updatedFiles.push(fileId);
+            } catch (error: any) {
+                if (fileType === 'video') {
+                    dispatch(errorVideoLoading({ fileId, error: error.message || 'Failed to load video' }));
+                }
+                console.error('Error storing file:', error);
+                toast.error(`Failed to load ${file.name}`);
+                continue;
+            }
             
             // Get video dimensions if it's a video
             let originalWidth: number | undefined;
@@ -223,18 +244,13 @@ export default function LeftSidebar() {
 
         const fileId = crypto.randomUUID();
         
-        // Upload to project-specific folder if user and project are available
-        if (user && projectId) {
-            try {
-                await uploadProjectFile(file, fileId, projectId, user.id);
-            } catch (error: any) {
-                toast.error(`Failed to upload audio: ${error.message}`);
-                e.target.value = "";
-                return;
-            }
-        } else {
-            // Fallback to IndexedDB if no project context
+        // Store audio file to IndexedDB
+        try {
             await storeFile(file, fileId);
+        } catch (error: any) {
+            toast.error(`Failed to upload audio: ${error.message}`);
+            e.target.value = "";
+            return;
         }
         
         const updatedFiles = [...(filesID || []), fileId];
@@ -307,7 +323,8 @@ export default function LeftSidebar() {
 
         // Process each library item
         for (const libraryItem of items) {
-            if (libraryItem.status !== 'completed') {
+            // Skip items without URL or not completed
+            if (!libraryItem.url || (libraryItem.status && libraryItem.status !== 'completed')) {
                 continue;
             }
 
@@ -320,12 +337,34 @@ export default function LeftSidebar() {
 
                 const file = await downloadMediaFile(libraryItem, user.id);
                 
-                // Store in IndexedDB
-                const fileId = crypto.randomUUID();
-                await storeFile(file, fileId);
-                updatedFiles.push(fileId);
-
                 const fileType = libraryItem.type || categorizeFile(file.type);
+                
+                // Store in IndexedDB with progress tracking for videos
+                const fileId = crypto.randomUUID();
+                
+                // Track loading for videos
+                if (fileType === 'video') {
+                    dispatch(addVideoLoading({ fileId, fileName: libraryItem.name }));
+                }
+                
+                try {
+                    if (fileType === 'video') {
+                        await storeFile(file, fileId, (progress) => {
+                            dispatch(updateVideoProgress({ fileId, progress }));
+                        });
+                        dispatch(completeVideoLoading({ fileId }));
+                    } else {
+                        await storeFile(file, fileId);
+                    }
+                    updatedFiles.push(fileId);
+                } catch (error: any) {
+                    if (fileType === 'video') {
+                        dispatch(errorVideoLoading({ fileId, error: error.message || 'Failed to load video' }));
+                    }
+                    console.error('Error storing file:', error);
+                    toast.error(`Failed to load ${libraryItem.name}`);
+                    continue;
+                }
                 
                 // Skip audio files (handled separately)
                 if (fileType === 'audio') {

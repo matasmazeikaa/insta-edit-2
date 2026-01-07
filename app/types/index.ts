@@ -153,6 +153,7 @@ export interface LibraryItem {
     type?: MediaType;
     size?: number;
     createdAt?: string;
+    status?: 'uploading' | 'completed' | 'error';
 }
 
 export const mimeToExt = {
