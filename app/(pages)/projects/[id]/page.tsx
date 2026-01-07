@@ -14,7 +14,7 @@ import VideoLoader from "../../../components/editor/VideoLoader";
 import Image from "next/image";
 import { useAuth } from "../../../contexts/AuthContext";
 import { createClient } from "../../../utils/supabase/client";
-import { addVideoLoading, updateVideoProgress, completeVideoLoading, errorVideoLoading } from "../../../store/slices/loadingSlice";
+import { addMediaLoading, updateMediaProgress, completeMediaLoading, errorMediaLoading } from "../../../store/slices/loadingSlice";
 
 export default function Project({ params }: { params: { id: string } }) {
     const { id } = params;
@@ -70,39 +70,38 @@ export default function Project({ params }: { params: { id: string } }) {
                                     return null;
                                 }
 
-                                // For videos, use fallback mechanism (IndexedDB -> Supabase)
-                                // For other media types, just try IndexedDB for now
+                                // Use fallback mechanism (IndexedDB -> Supabase) for all media types with supabaseFileId
                                 let file: File | null = null;
                                 
-                                if (media.type === 'video' && media.supabaseFileId && user) {
+                                if (media.supabaseFileId && user) {
                                     // Check if file exists in IndexedDB first to determine if we need to show loading
                                     const cachedFile = await getFile(media.fileId);
                                     
                                     if (!cachedFile) {
                                         // File not in cache, will download from Supabase - show loading
-                                        dispatch(addVideoLoading({ fileId: media.fileId, fileName: media.fileName }));
+                                        dispatch(addMediaLoading({ fileId: media.fileId, fileName: media.fileName, type: media.type }));
                                     }
                                     
-                                    // Use fallback for videos with Supabase file ID
+                                    // Use fallback for media with Supabase file ID
                                     file = await getFileWithFallback(
                                         media.fileId,
                                         media.supabaseFileId,
                                         media.fileName,
                                         user.id,
                                         !cachedFile ? (progress) => {
-                                            dispatch(updateVideoProgress({ fileId: media.fileId, progress }));
+                                            dispatch(updateMediaProgress({ fileId: media.fileId, progress }));
                                         } : undefined
                                     );
                                     
                                     if (!cachedFile) {
                                         if (file) {
-                                            dispatch(completeVideoLoading({ fileId: media.fileId }));
+                                            dispatch(completeMediaLoading({ fileId: media.fileId }));
                                         } else {
-                                            dispatch(errorVideoLoading({ fileId: media.fileId, error: 'Failed to download from cloud storage' }));
+                                            dispatch(errorMediaLoading({ fileId: media.fileId, error: 'Failed to download from cloud storage' }));
                                         }
                                     }
                                 } else {
-                                    // For non-video or videos without Supabase ID, try regular getFile
+                                    // For media without Supabase ID, try regular getFile
                                     file = await getFile(media.fileId);
                                 }
 

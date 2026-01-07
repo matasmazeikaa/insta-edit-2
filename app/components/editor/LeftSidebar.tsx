@@ -4,16 +4,17 @@ import { useState } from "react";
 import { useAppSelector, useAppDispatch } from "@/app/store";
 import { setMediaFiles, setFilesID } from "@/app/store/slices/projectSlice";
 import { storeFile, getFile } from "@/app/store";
-import { addVideoLoading, updateVideoProgress, completeVideoLoading, errorVideoLoading } from "@/app/store/slices/loadingSlice";
+import { addMediaLoading, updateMediaProgress, completeMediaLoading, errorMediaLoading } from "@/app/store/slices/loadingSlice";
 import { MediaFile, LibraryItem } from "@/app/types";
 import { FileVideo, Crown, Zap, LayoutGrid, Upload, Library, Sparkles, Music, LogOut, Link as LinkIcon, Loader2, Trash2 } from "lucide-react";
 import AITools from "./AssetsPanel/tools-section/AITools";
 import MediaList from "./AssetsPanel/tools-section/MediaList";
 import { MediaLibraryModal } from "./AssetsPanel/MediaLibraryModal";
+import { AudioLibraryModal } from "./AssetsPanel/AudioLibraryModal";
 import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
 import { categorizeFile } from "@/app/utils/utils";
-import { getVideoDimensions, calculateVideoFit } from "@/app/utils/videoDimensions";
+import { getVideoDimensions, calculateVideoFit, getAudioDuration } from "@/app/utils/videoDimensions";
 import { downloadMediaFile, uploadMediaFile } from "@/app/services/mediaLibraryService";
 import { useAuth } from "@/app/contexts/AuthContext";
 
@@ -28,6 +29,7 @@ export default function LeftSidebar() {
     const { user } = useAuth();
     const [isImporting, setIsImporting] = useState(false);
     const [isLibraryModalOpen, setIsLibraryModalOpen] = useState(false);
+    const [isAudioLibraryModalOpen, setIsAudioLibraryModalOpen] = useState(false);
 
     // Mock user stats - in real app, this would come from auth/API
     const userStats = {
@@ -66,38 +68,40 @@ export default function LeftSidebar() {
             const fileId = crypto.randomUUID();
             const fileType = categorizeFile(file.type);
             
-            // Track loading for videos
+            // Track loading for videos, audio, and large images
             let supabaseFileId: string | undefined;
-            if (fileType === 'video') {
-                dispatch(addVideoLoading({ fileId, fileName: file.name }));
+            const shouldTrackProgress = fileType === 'video' || fileType === 'audio' || (fileType === 'image' && file.size > 1024 * 1024);
+            
+            if (shouldTrackProgress) {
+                dispatch(addMediaLoading({ fileId, fileName: file.name, type: fileType }));
                 
                 // Upload to Supabase first (for fallback when IndexedDB is cleared)
                 if (user) {
                     try {
                         const libraryItem = await uploadMediaFile(file, user.id);
-                        const fileExt = file.name.split('.').pop() || 'mp4';
+                        const fileExt = file.name.split('.').pop() || (fileType === 'video' ? 'mp4' : fileType === 'audio' ? 'mp3' : 'jpg');
                         supabaseFileId = `${libraryItem.id}.${fileExt}`;
                     } catch (uploadError: any) {
-                        console.warn('Failed to upload video to Supabase (will continue with local storage only):', uploadError);
-                        // Continue without Supabase ID - video will work locally but won't have fallback
+                        console.warn(`Failed to upload ${fileType} to Supabase (will continue with local storage only):`, uploadError);
+                        // Continue without Supabase ID - media will work locally but won't have fallback
                     }
                 }
             }
             
-            // Store file with progress tracking for videos
+            // Store file with progress tracking for videos, audio, and large images
             try {
-                if (fileType === 'video') {
+                if (shouldTrackProgress) {
                     await storeFile(file, fileId, (progress) => {
-                        dispatch(updateVideoProgress({ fileId, progress }));
+                        dispatch(updateMediaProgress({ fileId, progress }));
                     });
-                    dispatch(completeVideoLoading({ fileId }));
+                    dispatch(completeMediaLoading({ fileId }));
                 } else {
                     await storeFile(file, fileId);
                 }
                 updatedFiles.push(fileId);
             } catch (error: any) {
-                if (fileType === 'video') {
-                    dispatch(errorVideoLoading({ fileId, error: error.message || 'Failed to load video' }));
+                if (shouldTrackProgress) {
+                    dispatch(errorMediaLoading({ fileId, error: error.message || `Failed to load ${fileType}` }));
                 }
                 console.error('Error storing file:', error);
                 toast.error(`Failed to load ${file.name}`);
@@ -185,7 +189,7 @@ export default function LeftSidebar() {
                     originalHeight: fileType === 'video' ? originalHeight : undefined,
                     isPlaceholder: false,
                     placeholderType: undefined,
-                    supabaseFileId: fileType === 'video' ? supabaseFileId : undefined,
+                    supabaseFileId: supabaseFileId,
                 };
                 replacedCount++;
             } else {
@@ -233,7 +237,7 @@ export default function LeftSidebar() {
                     zoom: fileType === 'video' ? 1.0 : undefined,
                     originalWidth: fileType === 'video' ? originalWidth : undefined,
                     originalHeight: fileType === 'video' ? originalHeight : undefined,
-                    supabaseFileId: fileType === 'video' ? supabaseFileId : undefined,
+                    supabaseFileId: supabaseFileId,
                 });
                 addedCount++;
             }
@@ -257,48 +261,158 @@ export default function LeftSidebar() {
         const file = e.target.files?.[0];
         if (!file) return;
 
-        const fileId = crypto.randomUUID();
-        
-        // Store audio file to IndexedDB
-        try {
-            await storeFile(file, fileId);
-        } catch (error: any) {
-            toast.error(`Failed to upload audio: ${error.message}`);
+        if (!user || !projectId) {
+            toast.error('You must be logged in and have a project open to upload audio');
             e.target.value = "";
             return;
         }
+
+        const fileId = crypto.randomUUID();
         
-        const updatedFiles = [...(filesID || []), fileId];
-        dispatch(setFilesID(updatedFiles));
+        // Add to loading tracker
+        dispatch(addMediaLoading({ fileId, fileName: file.name, type: 'audio' }));
+        
+        try {
+            // Upload to Supabase first (for fallback when IndexedDB is cleared)
+            let supabaseFileId: string | undefined;
+            try {
+                const libraryItem = await uploadMediaFile(file, user.id);
+                const fileExt = file.name.split('.').pop() || 'mp3';
+                supabaseFileId = `${libraryItem.id}.${fileExt}`;
+            } catch (uploadError: any) {
+                console.warn('Failed to upload audio to Supabase (will continue with local storage only):', uploadError);
+                // Continue without Supabase ID - audio will work locally but won't have fallback
+            }
+            
+            // Store file in IndexedDB with progress tracking
+            await storeFile(file, fileId, (progress) => {
+                dispatch(updateMediaProgress({ fileId, progress }));
+            });
+            
+            dispatch(completeMediaLoading({ fileId }));
+            
+            const updatedFiles = [...(filesID || []), fileId];
+            dispatch(setFilesID(updatedFiles));
 
-        // Create audio MediaFile
-        const audioMediaFile: MediaFile = {
-            id: crypto.randomUUID(),
-            fileName: file.name,
-            fileId: fileId,
-            type: "audio",
-            startTime: 0,
-            endTime: 0, // Will be set when audio loads
-            positionStart: 0,
-            positionEnd: 0,
-            includeInMerge: true,
-            playbackSpeed: 1,
-            volume: 100,
-            zIndex: 0,
-            src: URL.createObjectURL(file),
-        };
+            // Create audio MediaFile
+            const audioMediaFile: MediaFile = {
+                id: crypto.randomUUID(),
+                fileName: file.name,
+                fileId: fileId,
+                type: "audio",
+                startTime: 0,
+                endTime: 0, // Will be set when audio loads
+                positionStart: 0,
+                positionEnd: 0,
+                includeInMerge: true,
+                playbackSpeed: 1,
+                volume: 100,
+                zIndex: 0,
+                src: URL.createObjectURL(file),
+                supabaseFileId: supabaseFileId,
+            };
 
-        // Remove existing audio track if any
-        const filteredMedia = mediaFiles.filter(m => m.type !== 'audio');
-        dispatch(setMediaFiles([...filteredMedia, audioMediaFile]));
-        toast.success("Audio track added");
-        e.target.value = "";
+            // Remove existing audio track if any
+            const filteredMedia = mediaFiles.filter(m => m.type !== 'audio');
+            dispatch(setMediaFiles([...filteredMedia, audioMediaFile]));
+            toast.success("Audio track added");
+        } catch (error: any) {
+            toast.error(`Failed to upload audio: ${error.message}`);
+            dispatch(errorMediaLoading({ fileId, error: error.message || 'Failed to load audio' }));
+        } finally {
+            e.target.value = "";
+        }
     };
 
     const handleRemoveAudio = () => {
         const filtered = mediaFiles.filter(m => m.type !== 'audio');
         dispatch(setMediaFiles(filtered));
         toast.success("Audio track removed");
+    };
+
+    const handleAddAudioFromLibrary = async (items: LibraryItem[]) => {
+        if (items.length === 0) return;
+
+        if (!user) {
+            toast.error('You must be logged in to add audio from library');
+            return;
+        }
+
+        // Use the first selected audio file
+        const libraryItem = items[0];
+        
+        // Skip items without URL or not completed
+        if (!libraryItem.url || (libraryItem.status && libraryItem.status !== 'completed')) {
+            toast.error('Selected audio file is not available');
+            return;
+        }
+
+        try {
+            // Download file from Supabase
+            const file = await downloadMediaFile(libraryItem, user.id);
+            
+            const fileId = crypto.randomUUID();
+            
+            // Construct Supabase file ID from library item (format: {fileId}.{ext})
+            const supabaseFileId = libraryItem.id
+                ? (() => {
+                      const fileExt = libraryItem.name.split('.').pop() || 'mp3';
+                      return `${libraryItem.id}.${fileExt}`;
+                  })()
+                : undefined;
+            
+            // Track loading for audio
+            dispatch(addMediaLoading({ fileId, fileName: libraryItem.name, type: 'audio' }));
+            
+            try {
+                // Store file in IndexedDB with progress tracking
+                await storeFile(file, fileId, (progress) => {
+                    dispatch(updateMediaProgress({ fileId, progress }));
+                });
+                dispatch(completeMediaLoading({ fileId }));
+            } catch (error: any) {
+                dispatch(errorMediaLoading({ fileId, error: error.message || 'Failed to load audio' }));
+                throw error;
+            }
+            
+            const updatedFiles = [...(filesID || []), fileId];
+            dispatch(setFilesID(updatedFiles));
+
+            // Get actual audio duration
+            let audioDuration = DEFAULT_MEDIA_TIME;
+            try {
+                audioDuration = await getAudioDuration(file);
+            } catch (error) {
+                console.warn('Failed to get audio duration, using default:', error);
+                // Keep DEFAULT_MEDIA_TIME as fallback
+            }
+
+            // Create audio MediaFile
+            const audioMediaFile: MediaFile = {
+                id: crypto.randomUUID(),
+                fileName: libraryItem.name,
+                fileId: fileId,
+                type: "audio",
+                startTime: 0,
+                endTime: audioDuration,
+                positionStart: 0,
+                positionEnd: audioDuration,
+                includeInMerge: true,
+                playbackSpeed: 1,
+                volume: 100,
+                zIndex: 0,
+                src: URL.createObjectURL(file),
+                supabaseFileId: supabaseFileId,
+            };
+
+            // Remove existing audio track if any
+            const filteredMedia = mediaFiles.filter(m => m.type !== 'audio');
+            dispatch(setMediaFiles([...filteredMedia, audioMediaFile]));
+            toast.success("Audio track added from library");
+        } catch (error: any) {
+            console.error('Error adding audio from library:', error);
+            toast.error(`Failed to add audio: ${error.message}`);
+        }
     };
 
     const handleImportReference = async (file: File) => {
@@ -357,32 +471,35 @@ export default function LeftSidebar() {
                 // Store in IndexedDB with progress tracking for videos
                 const fileId = crypto.randomUUID();
                 
-                // Construct Supabase file ID for videos (format: {fileId}.{ext})
-                const supabaseFileId = fileType === 'video' && libraryItem.id
+                // Construct Supabase file ID (format: {fileId}.{ext})
+                const supabaseFileId = libraryItem.id
                     ? (() => {
-                          const fileExt = libraryItem.name.split('.').pop() || 'mp4';
+                          const fileExt = libraryItem.name.split('.').pop() || 
+                              (fileType === 'video' ? 'mp4' : fileType === 'audio' ? 'mp3' : 'jpg');
                           return `${libraryItem.id}.${fileExt}`;
                       })()
                     : undefined;
                 
-                // Track loading for videos
-                if (fileType === 'video') {
-                    dispatch(addVideoLoading({ fileId, fileName: libraryItem.name }));
+                // Track loading for videos, audio, and large images
+                const shouldTrackProgress = fileType === 'video' || fileType === 'audio' || (fileType === 'image' && file.size > 1024 * 1024);
+                
+                if (shouldTrackProgress) {
+                    dispatch(addMediaLoading({ fileId, fileName: libraryItem.name, type: fileType }));
                 }
                 
                 try {
-                    if (fileType === 'video') {
+                    if (shouldTrackProgress) {
                         await storeFile(file, fileId, (progress) => {
-                            dispatch(updateVideoProgress({ fileId, progress }));
+                            dispatch(updateMediaProgress({ fileId, progress }));
                         });
-                        dispatch(completeVideoLoading({ fileId }));
+                        dispatch(completeMediaLoading({ fileId }));
                     } else {
                         await storeFile(file, fileId);
                     }
                     updatedFiles.push(fileId);
                 } catch (error: any) {
-                    if (fileType === 'video') {
-                        dispatch(errorVideoLoading({ fileId, error: error.message || 'Failed to load video' }));
+                    if (shouldTrackProgress) {
+                        dispatch(errorMediaLoading({ fileId, error: error.message || `Failed to load ${fileType}` }));
                     }
                     console.error('Error storing file:', error);
                     toast.error(`Failed to load ${libraryItem.name}`);
@@ -473,7 +590,7 @@ export default function LeftSidebar() {
                         originalHeight: fileType === 'video' ? originalHeight : undefined,
                         isPlaceholder: false,
                         placeholderType: undefined,
-                        supabaseFileId: fileType === 'video' ? supabaseFileId : undefined,
+                        supabaseFileId: supabaseFileId,
                     };
                     replacedCount++;
                 } else {
@@ -518,7 +635,7 @@ export default function LeftSidebar() {
                         zoom: fileType === 'video' ? 1.0 : undefined,
                         originalWidth: fileType === 'video' ? originalWidth : undefined,
                         originalHeight: fileType === 'video' ? originalHeight : undefined,
-                        supabaseFileId: fileType === 'video' ? supabaseFileId : undefined,
+                        supabaseFileId: supabaseFileId,
                     });
                     addedCount++;
                 }
@@ -590,17 +707,6 @@ export default function LeftSidebar() {
             </div>
 
             <div className="flex-1 overflow-y-auto p-4 space-y-6">
-                {/* Templates */}
-                <div className="space-y-3">
-                    <button 
-                        onClick={handleOpenGallery}
-                        className="w-full py-4 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white rounded-xl shadow-lg shadow-blue-900/30 flex items-center justify-center gap-2 transition-all hover:scale-[1.02] active:scale-95"
-                    >
-                        <LayoutGrid className="w-5 h-5" />
-                        <span className="font-bold text-sm">Browse Viral Templates</span>
-                    </button>
-                </div>
-
                 {/* Media Library Action */}
                 <div>
                     <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2">
@@ -608,12 +714,6 @@ export default function LeftSidebar() {
                     </h2>
                     
                     <div className="grid grid-cols-2 gap-3">
-                        <label className="flex flex-col items-center justify-center p-4 bg-blue-600 hover:bg-blue-500 text-white rounded-xl cursor-pointer transition-all hover:scale-[1.02] shadow-lg shadow-blue-900/20 group">
-                            <Upload className="w-6 h-6 mb-2 group-hover:animate-bounce" />
-                            <span className="text-xs font-bold">Upload Clips</span>
-                            <input type="file" multiple accept="video/*,image/*" className="hidden" onChange={handleQuickUpload} />
-                        </label>
-
                         <button 
                             onClick={handleOpenLibrary}
                             className="flex flex-col items-center justify-center p-4 bg-slate-800 hover:bg-slate-750 text-slate-300 hover:text-white border border-slate-700 hover:border-slate-600 rounded-xl transition-all"
@@ -631,15 +731,26 @@ export default function LeftSidebar() {
                 <div className="pb-4">
                     <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Audio Track</h2>
                     {!audioTrack ? (
-                        <label className="flex items-center justify-center w-full h-12 border border-slate-700 rounded-xl bg-slate-800/30 hover:bg-slate-800 cursor-pointer transition-all gap-2 group">
-                            <div className="w-6 h-6 rounded-full bg-slate-700 flex items-center justify-center group-hover:bg-blue-500/20 group-hover:text-blue-400 transition-colors">
-                                <Music className="w-3 h-3" />
-                            </div>
-                            <span className="text-xs text-slate-400 group-hover:text-slate-200">Add Audio</span>
-                            <input type="file" accept="audio/*" className="hidden" onChange={handleUploadAudio} />
-                        </label>
+                        <div className="space-y-2">
+                            <label className="flex items-center justify-center w-full h-12 border border-slate-700 rounded-xl bg-slate-800/30 hover:bg-slate-800 cursor-pointer transition-all gap-2 group">
+                                <div className="w-6 h-6 rounded-full bg-slate-700 flex items-center justify-center group-hover:bg-blue-500/20 group-hover:text-blue-400 transition-colors">
+                                    <Upload className="w-3 h-3" />
+                                </div>
+                                <span className="text-xs text-slate-400 group-hover:text-slate-200">Upload Audio</span>
+                                <input type="file" accept="audio/*" className="hidden" onChange={handleUploadAudio} />
+                            </label>
+                            <button 
+                                onClick={() => setIsAudioLibraryModalOpen(true)}
+                                className="flex items-center justify-center w-full h-12 border border-slate-700 rounded-xl bg-slate-800/30 hover:bg-slate-800 transition-all gap-2 group"
+                            >
+                                <div className="w-6 h-6 rounded-full bg-slate-700 flex items-center justify-center group-hover:bg-blue-500/20 group-hover:text-blue-400 transition-colors">
+                                    <Library className="w-3 h-3" />
+                                </div>
+                                <span className="text-xs text-slate-400 group-hover:text-slate-200">Open Audio Library</span>
+                            </button>
+                        </div>
                     ) : (
-                        <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-3">
+                        <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-3 space-y-2">
                             <div className="flex items-center justify-between mb-2">
                                 <div className="flex items-center gap-2 overflow-hidden">
                                     <div className="w-6 h-6 rounded-full bg-blue-500 flex items-center justify-center text-white shrink-0">
@@ -651,6 +762,20 @@ export default function LeftSidebar() {
                                 </div>
                                 <button onClick={handleRemoveAudio} className="text-blue-300 hover:text-red-400 transition-colors">
                                     <Trash2 className="w-3 h-3" />
+                                </button>
+                            </div>
+                            <div className="flex gap-2">
+                                <label className="flex-1 flex items-center justify-center h-9 border border-slate-700 rounded-lg bg-slate-800/30 hover:bg-slate-800 cursor-pointer transition-all gap-2 group">
+                                    <Upload className="w-3 h-3 text-slate-400 group-hover:text-slate-200" />
+                                    <span className="text-xs text-slate-400 group-hover:text-slate-200">Replace</span>
+                                    <input type="file" accept="audio/*" className="hidden" onChange={handleUploadAudio} />
+                                </label>
+                                <button 
+                                    onClick={() => setIsAudioLibraryModalOpen(true)}
+                                    className="flex-1 flex items-center justify-center h-9 border border-slate-700 rounded-lg bg-slate-800/30 hover:bg-slate-800 transition-all gap-2 group"
+                                >
+                                    <Library className="w-3 h-3 text-slate-400 group-hover:text-slate-200" />
+                                    <span className="text-xs text-slate-400 group-hover:text-slate-200">Library</span>
                                 </button>
                             </div>
                         </div>
@@ -669,6 +794,13 @@ export default function LeftSidebar() {
                 isOpen={isLibraryModalOpen}
                 onClose={() => setIsLibraryModalOpen(false)}
                 onAddToTimeline={handleAddLibraryItemsToTimeline}
+            />
+
+            {/* Audio Library Modal */}
+            <AudioLibraryModal
+                isOpen={isAudioLibraryModalOpen}
+                onClose={() => setIsAudioLibraryModalOpen(false)}
+                onAddToTimeline={handleAddAudioFromLibrary}
             />
         </div>
     );

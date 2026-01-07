@@ -90,6 +90,48 @@ export async function getVideoDuration(
 }
 
 /**
+ * Get audio duration from an audio file or URL
+ */
+export async function getAudioDuration(
+  src: string | File
+): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const audio = document.createElement('audio');
+    audio.preload = 'metadata';
+    let objectUrl: string | null = null;
+
+    audio.onloadedmetadata = () => {
+      const duration = audio.duration;
+      // Only revoke URLs we created ourselves (from File objects)
+      if (objectUrl) {
+        window.URL.revokeObjectURL(objectUrl);
+      }
+      if (isFinite(duration) && duration > 0) {
+        resolve(duration);
+      } else {
+        reject(new Error('Invalid audio duration'));
+      }
+    };
+
+    audio.onerror = () => {
+      // Only revoke URLs we created ourselves (from File objects)
+      if (objectUrl) {
+        window.URL.revokeObjectURL(objectUrl);
+      }
+      reject(new Error('Failed to load audio metadata'));
+    };
+
+    if (src instanceof File) {
+      objectUrl = URL.createObjectURL(src);
+      audio.src = objectUrl;
+    } else {
+      // Don't revoke existing blob URLs - they might be in use elsewhere
+      audio.src = src;
+    }
+  });
+}
+
+/**
  * Calculate dimensions and position for a video to fit within a 9:16 canvas
  * Canvas is 1080x1920 (9:16 portrait)
  */

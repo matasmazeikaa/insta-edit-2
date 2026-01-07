@@ -1,37 +1,37 @@
 "use client";
 
 import { useAppSelector, useAppDispatch } from "@/app/store";
-import { clearCompletedVideos } from "@/app/store/slices/loadingSlice";
+import { clearCompletedMedia } from "@/app/store/slices/loadingSlice";
 import { useEffect, useMemo } from "react";
 import { CheckCircle2, AlertCircle, Loader2, Video } from "lucide-react";
 
 export default function VideoLoader() {
-    const { videos, isActive } = useAppSelector((state) => state.loading);
+    const { media, isActive } = useAppSelector((state) => state.loading);
     const dispatch = useAppDispatch();
 
     // Calculate overall progress
     const overallProgress = useMemo(() => {
-        if (videos.length === 0) return 0;
-        const totalProgress = videos.reduce((sum, video) => sum + video.progress, 0);
-        return Math.round(totalProgress / videos.length);
-    }, [videos]);
+        if (media.length === 0) return 0;
+        const totalProgress = media.reduce((sum, item) => sum + item.progress, 0);
+        return Math.round(totalProgress / media.length);
+    }, [media]);
 
-    // Auto-clear completed videos after 2 seconds when not active
+    // Auto-clear completed media after 2 seconds when not active
     useEffect(() => {
-        if (!isActive && videos.length > 0) {
+        if (!isActive && media.length > 0) {
             const timer = setTimeout(() => {
-                dispatch(clearCompletedVideos());
+                dispatch(clearCompletedMedia());
             }, 2000);
             return () => clearTimeout(timer);
         }
-    }, [isActive, videos.length, dispatch]);
+    }, [isActive, media.length, dispatch]);
 
-    // Show overlay whenever there are videos - this prevents blinking when isActive toggles
-    const shouldShow = videos.length > 0;
+    // Show overlay whenever there are media files - this prevents blinking when isActive toggles
+    const shouldShow = media.length > 0;
 
-    const loadingVideos = videos.filter(v => v.status === 'loading');
-    const completedVideos = videos.filter(v => v.status === 'completed');
-    const errorVideos = videos.filter(v => v.status === 'error');
+    const loadingMedia = media.filter(m => m.status === 'loading');
+    const completedMedia = media.filter(m => m.status === 'completed');
+    const errorMedia = media.filter(m => m.status === 'error');
 
     return (
         <div 
@@ -51,10 +51,10 @@ export default function VideoLoader() {
                         </div>
                         <div className="flex-1">
                             <h3 className="text-xl font-bold text-white mb-1">
-                                Loading Videos
+                                Loading Media
                             </h3>
                             <p className="text-sm text-slate-400">
-                                {loadingVideos.length} video{loadingVideos.length !== 1 ? 's' : ''} being cached to IndexedDB
+                                {loadingMedia.length} file{loadingMedia.length !== 1 ? 's' : ''} being cached to IndexedDB
                             </p>
                         </div>
                         {isActive && (
@@ -76,31 +76,32 @@ export default function VideoLoader() {
                         </div>
                     </div>
 
-                    {/* Individual Video Progress */}
+                    {/* Individual Media Progress */}
                     <div className="space-y-3 max-h-64 overflow-y-auto">
-                        {videos.map((video) => (
-                            <div key={video.fileId} className="space-y-2">
+                        {media.map((item) => (
+                            <div key={item.fileId} className="space-y-2">
                                 <div className="flex items-center justify-between text-xs">
                                     <span 
                                         className="text-slate-300 truncate flex-1 mr-2" 
-                                        title={video.fileName}
+                                        title={item.fileName}
                                     >
-                                        {video.fileName}
+                                        <span className="text-slate-500 text-[10px] uppercase mr-1">{item.type}</span>
+                                        {item.fileName}
                                     </span>
                                     <div className="flex items-center gap-2">
-                                        {video.status === 'loading' && (
+                                        {item.status === 'loading' && (
                                             <Loader2 className="w-3 h-3 text-blue-500 animate-spin" />
                                         )}
-                                        {video.status === 'completed' && (
+                                        {item.status === 'completed' && (
                                             <CheckCircle2 className="w-3 h-3 text-green-500" />
                                         )}
-                                        {video.status === 'error' && (
+                                        {item.status === 'error' && (
                                             <AlertCircle className="w-3 h-3 text-red-500" />
                                         )}
                                         <span className="text-slate-400 font-mono min-w-[3rem] text-right">
-                                            {video.status === 'loading' 
-                                                ? `${Math.round(video.progress)}%`
-                                                : video.status === 'completed'
+                                            {item.status === 'loading' 
+                                                ? `${Math.round(item.progress)}%`
+                                                : item.status === 'completed'
                                                 ? '100%'
                                                 : 'Error'
                                             }
@@ -110,17 +111,17 @@ export default function VideoLoader() {
                                 <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
                                     <div
                                         className={`h-full rounded-full transition-all duration-300 ${
-                                            video.status === 'error'
+                                            item.status === 'error'
                                                 ? 'bg-red-500'
-                                                : video.status === 'completed'
+                                                : item.status === 'completed'
                                                 ? 'bg-green-500'
                                                 : 'bg-gradient-to-r from-blue-500 to-purple-500'
                                         }`}
-                                        style={{ width: `${video.progress}%` }}
+                                        style={{ width: `${item.progress}%` }}
                                     />
                                 </div>
-                                {video.status === 'error' && video.error && (
-                                    <p className="text-xs text-red-400 mt-1">{video.error}</p>
+                                {item.status === 'error' && item.error && (
+                                    <p className="text-xs text-red-400 mt-1">{item.error}</p>
                                 )}
                             </div>
                         ))}
@@ -128,25 +129,25 @@ export default function VideoLoader() {
 
                     {/* Status Summary */}
                     <div className="flex items-center gap-4 pt-4 border-t border-slate-800">
-                        {completedVideos.length > 0 && (
+                        {completedMedia.length > 0 && (
                             <div className="flex items-center gap-2 text-sm">
                                 <CheckCircle2 className="w-4 h-4 text-green-500" />
                                 <span className="text-slate-300">
-                                    {completedVideos.length} completed
+                                    {completedMedia.length} completed
                                 </span>
                             </div>
                         )}
-                        {errorVideos.length > 0 && (
+                        {errorMedia.length > 0 && (
                             <div className="flex items-center gap-2 text-sm">
                                 <AlertCircle className="w-4 h-4 text-red-500" />
                                 <span className="text-slate-300">
-                                    {errorVideos.length} error{errorVideos.length !== 1 ? 's' : ''}
+                                    {errorMedia.length} error{errorMedia.length !== 1 ? 's' : ''}
                                 </span>
                             </div>
                         )}
                         <div className="flex-1" />
                         <span className="text-xs text-slate-500 font-mono">
-                            {loadingVideos.length} remaining
+                            {loadingMedia.length} remaining
                         </span>
                     </div>
                 </div>

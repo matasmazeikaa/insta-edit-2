@@ -2,7 +2,7 @@
 
 import { useAppSelector } from "@/app/store";
 import { setMediaFiles, setTextElements, setFilesID } from "@/app/store/slices/projectSlice";
-import { addVideoLoading, updateVideoProgress, completeVideoLoading, errorVideoLoading } from "@/app/store/slices/loadingSlice";
+import { addMediaLoading, updateMediaProgress, completeMediaLoading, errorMediaLoading } from "@/app/store/slices/loadingSlice";
 import { MediaFile, TextElement } from "@/app/types";
 import { useAppDispatch } from "@/app/store";
 import { useState } from "react";
@@ -28,15 +28,15 @@ export default function AITools() {
       const audioFileId = crypto.randomUUID();
       
       // Track loading for the reference video
-      dispatch(addVideoLoading({ fileId: audioFileId, fileName: file.name }));
+      dispatch(addMediaLoading({ fileId: audioFileId, fileName: file.name, type: 'video' }));
       
       try {
         await storeFile(file, audioFileId, (progress) => {
-          dispatch(updateVideoProgress({ fileId: audioFileId, progress }));
+          dispatch(updateMediaProgress({ fileId: audioFileId, progress }));
         });
-        dispatch(completeVideoLoading({ fileId: audioFileId }));
+        dispatch(completeMediaLoading({ fileId: audioFileId }));
       } catch (error: any) {
-        dispatch(errorVideoLoading({ fileId: audioFileId, error: error.message || 'Failed to load video' }));
+        dispatch(errorMediaLoading({ fileId: audioFileId, error: error.message || 'Failed to load video' }));
         throw error;
       }
       

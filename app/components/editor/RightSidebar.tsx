@@ -297,20 +297,6 @@ export default function RightSidebar() {
                                                     onClick={(e) => e.stopPropagation()}
                                                 />
                                             </div>
-                                            <div>
-                                                <label className="block text-[10px] font-bold text-slate-400 mb-1">
-                                                    STROKE: 0
-                                                </label>
-                                                <input
-                                                    type="range"
-                                                    min="0"
-                                                    max="20"
-                                                    step="1"
-                                                    value={0}
-                                                    className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
-                                                    onClick={(e) => e.stopPropagation()}
-                                                />
-                                            </div>
                                             <div className="grid grid-cols-2 gap-2">
                                                 <div>
                                                     <label className="block text-[10px] font-bold text-slate-400 mb-1">
@@ -329,63 +315,12 @@ export default function RightSidebar() {
                                                         onClick={(e) => e.stopPropagation()}
                                                     />
                                                 </div>
-                                                <div>
-                                                    <label className="block text-[10px] font-bold text-slate-400 mb-1">
-                                                        STROKE
-                                                    </label>
-                                                    <input
-                                                        type="color"
-                                                        value="#000000"
-                                                        className="w-full h-8 rounded border border-slate-700 cursor-pointer"
-                                                        onClick={(e) => e.stopPropagation()}
-                                                    />
-                                                </div>
-                                            </div>
-                                            <div>
-                                                <label className="block text-[10px] font-bold text-slate-400 mb-1">
-                                                    SHADOW: 10
-                                                </label>
-                                                <input
-                                                    type="range"
-                                                    min="0"
-                                                    max="50"
-                                                    step="1"
-                                                    value={10}
-                                                    className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
-                                                    onClick={(e) => e.stopPropagation()}
-                                                />
                                             </div>
                                         </div>
                                     </div>
                                 )}
                             </div>
                         ))}
-                    </div>
-                </div>
-
-                {/* Global Config */}
-                <div>
-                    <div className="space-y-3">
-                        <div>
-                            <label className="block text-xs font-bold text-slate-400 mb-2">
-                                VARIATIONS: {variations}x
-                            </label>
-                            <div className="flex gap-2">
-                                {[1, 3, 5, 10].map((val) => (
-                                    <button
-                                        key={val}
-                                        onClick={() => setVariations(val)}
-                                        className={`flex-1 py-2 px-3 text-xs font-bold rounded-lg transition-colors ${
-                                            variations === val
-                                                ? 'bg-blue-600 text-white'
-                                                : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-                                        }`}
-                                    >
-                                        {val}x
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
                     </div>
                 </div>
 

@@ -8,14 +8,12 @@ import Image from 'next/image';
 import { useAuth } from "../../../../contexts/AuthContext";
 import toast from 'react-hot-toast';
 import { MediaFile } from "../../../../types";
-import { getVideoDimensions, calculateVideoFit } from "../../../../utils/videoDimensions";
 import { uploadMediaFile } from "../../../../services/mediaLibraryService";
+import { getAudioDuration } from "../../../../utils/videoDimensions";
 
 const DEFAULT_MEDIA_TIME = 2;
-const CANVAS_WIDTH = 1080;
-const CANVAS_HEIGHT = 1920;
 
-export default function AddMedia() {
+export default function UploadAudio() {
     const { mediaFiles, filesID, id: projectId } = useAppSelector((state) => state.projectState);
     const dispatch = useAppDispatch();
     const { user } = useAuth();
@@ -33,57 +31,33 @@ export default function AddMedia() {
         const updatedFiles = [...filesID || []];
         const updatedMedia = [...mediaFiles];
         
+        // Process each file and get its duration
         for (const file of newFiles) {
             const fileId = crypto.randomUUID();
             const fileType = categorizeFile(file.type);
             
+            // Only handle audio files
+            if (fileType !== 'audio') {
+                continue;
+            }
+            
             // Create temporary src from file
             const tempSrc = URL.createObjectURL(file);
             
-            // Calculate position
-            const relevantClips = mediaFiles.filter(clip => clip.type === fileType);
+            // Get actual audio duration
+            let audioDuration = DEFAULT_MEDIA_TIME;
+            try {
+                audioDuration = await getAudioDuration(file);
+            } catch (error) {
+                console.warn('Failed to get audio duration, using default:', error);
+                // Keep DEFAULT_MEDIA_TIME as fallback
+            }
+            
+            // Calculate position - audio files typically start at 0 and span the full audio duration
+            const relevantClips = mediaFiles.filter(clip => clip.type === 'audio');
             const lastEnd = relevantClips.length > 0
                 ? Math.max(...relevantClips.map(f => f.positionEnd))
                 : 0;
-            
-            // Get video dimensions if it's a video
-            let originalWidth: number | undefined;
-            let originalHeight: number | undefined;
-            let initialFit: { width: number; height: number; x: number; y: number } | undefined;
-
-            if (fileType === 'video') {
-                try {
-                    const dimensions = await getVideoDimensions(file);
-                    originalWidth = dimensions.width;
-                    originalHeight = dimensions.height;
-                    const fit = calculateVideoFit(dimensions.width, dimensions.height, 'original', 1.0);
-                    initialFit = {
-                        width: fit.width,
-                        height: fit.height,
-                        x: fit.x,
-                        y: fit.y,
-                    };
-                } catch (error) {
-                    console.error('Failed to get video dimensions:', error);
-                    originalWidth = CANVAS_WIDTH;
-                    originalHeight = CANVAS_HEIGHT;
-                    initialFit = {
-                        width: CANVAS_WIDTH,
-                        height: CANVAS_HEIGHT,
-                        x: 0,
-                        y: 0,
-                    };
-                }
-            }
-            
-            const finalFit = fileType === 'video' && initialFit 
-                ? initialFit 
-                : {
-                    x: 0,
-                    y: 0,
-                    width: CANVAS_WIDTH,
-                    height: CANVAS_HEIGHT,
-                };
             
             // Add media file immediately with uploading status
             const newMediaFile: MediaFile = {
@@ -91,26 +65,15 @@ export default function AddMedia() {
                 fileName: file.name,
                 fileId: fileId,
                 startTime: 0,
-                endTime: DEFAULT_MEDIA_TIME,
+                endTime: audioDuration,
                 src: tempSrc,
-                positionStart: lastEnd,
-                positionEnd: lastEnd + DEFAULT_MEDIA_TIME,
+                positionStart: 0,
+                positionEnd: audioDuration,
                 includeInMerge: true,
-                x: finalFit.x,
-                y: finalFit.y,
-                width: finalFit.width,
-                height: finalFit.height,
-                rotation: 0,
-                opacity: 100,
-                crop: { x: 0, y: 0, width: finalFit.width, height: finalFit.height },
                 playbackSpeed: 1,
                 volume: 100,
                 type: fileType,
                 zIndex: 0,
-                aspectRatioFit: fileType === 'video' ? 'original' : undefined,
-                zoom: fileType === 'video' ? 1.0 : undefined,
-                originalWidth: fileType === 'video' ? originalWidth : undefined,
-                originalHeight: fileType === 'video' ? originalHeight : undefined,
                 status: 'uploading',
                 // supabaseFileId will be set after upload to Supabase
             };
@@ -124,15 +87,13 @@ export default function AddMedia() {
         dispatch(setFilesID(updatedFiles));
         e.target.value = "";
         
-        // Store files to IndexedDB with progress tracking (for video, audio, and large images)
+        // Store files to IndexedDB with progress tracking
         newFiles.forEach(async (file, index) => {
             const fileId = updatedFiles[updatedFiles.length - newFiles.length + index];
             const fileType = categorizeFile(file.type);
             
-            // Track loading for video, audio, and large images (> 1MB)
-            const shouldTrackProgress = fileType === 'video' || fileType === 'audio' || (fileType === 'image' && file.size > 1024 * 1024);
-            
-            if (shouldTrackProgress) {
+            // Only track loading for audio files
+            if (fileType === 'audio') {
                 // Add to loading tracker
                 dispatch(addMediaLoading({ fileId, fileName: file.name, type: fileType }));
                 
@@ -142,11 +103,11 @@ export default function AddMedia() {
                     try {
                         const libraryItem = await uploadMediaFile(file, user.id);
                         // The Supabase file ID is stored as {fileId}.{ext} in the user's folder
-                        const fileExt = file.name.split('.').pop() || (fileType === 'video' ? 'mp4' : fileType === 'audio' ? 'mp3' : 'jpg');
+                        const fileExt = file.name.split('.').pop() || 'mp3';
                         supabaseFileId = `${libraryItem.id}.${fileExt}`;
                     } catch (uploadError: any) {
-                        console.warn(`Failed to upload ${fileType} to Supabase (will continue with local storage only):`, uploadError);
-                        // Continue without Supabase ID - media will work locally but won't have fallback
+                        console.warn('Failed to upload audio to Supabase (will continue with local storage only):', uploadError);
+                        // Continue without Supabase ID - audio will work locally but won't have fallback
                     }
                     
                     // Store file in IndexedDB with progress tracking
@@ -169,25 +130,9 @@ export default function AddMedia() {
                 } catch (error: any) {
                     toast.error(`Failed to load ${file.name}: ${error.message}`);
                     console.error('Loading error:', error);
-                    dispatch(errorMediaLoading({ fileId, error: error.message || `Failed to load ${fileType}` }));
+                    dispatch(errorMediaLoading({ fileId, error: error.message || 'Failed to load audio' }));
                     
                     // Update status to error
-                    const currentMediaFiles = store.getState().projectState.mediaFiles;
-                    dispatch(setMediaFiles(
-                        currentMediaFiles.map(m => m.fileId === fileId ? { ...m, status: 'error' as const } : m)
-                    ));
-                }
-            } else {
-                // For small images, just store without progress tracking
-                try {
-                    await storeFile(file, fileId);
-                    const currentMediaFiles = store.getState().projectState.mediaFiles;
-                    dispatch(setMediaFiles(
-                        currentMediaFiles.map(m => m.fileId === fileId ? { ...m, status: 'ready' as const } : m)
-                    ));
-                } catch (error: any) {
-                    toast.error(`Failed to load ${file.name}: ${error.message}`);
-                    console.error('Loading error:', error);
                     const currentMediaFiles = store.getState().projectState.mediaFiles;
                     dispatch(setMediaFiles(
                         currentMediaFiles.map(m => m.fileId === fileId ? { ...m, status: 'error' as const } : m)
@@ -198,29 +143,29 @@ export default function AddMedia() {
     };
 
     return (
-        <div
-        >
+        <div>
             <label
-                htmlFor="file-upload"
+                htmlFor="audio-upload"
                 className="cursor-pointer rounded-full bg-white border border-solid border-transparent transition-colors flex flex-row gap-2 items-center justify-center text-gray-800 hover:bg-[#ccc] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-auto py-2 px-2 sm:px-5 sm:w-auto"
             >
                 <Image
-                    alt="Add Project"
+                    alt="Upload Audio"
                     className="Black"
                     height={12}
                     width={12}
                     src="https://www.svgrepo.com/show/514275/upload-cloud.svg"
                 />
-                <span className="text-xs">Add Media</span>
+                <span className="text-xs">Upload Audio</span>
             </label>
             <input
                 type="file"
-                accept="video/*,audio/*,image/*"
+                accept="audio/*"
                 multiple
                 onChange={handleFileChange}
                 className="hidden"
-                id="file-upload"
+                id="audio-upload"
             />
         </div>
     );
 }
+

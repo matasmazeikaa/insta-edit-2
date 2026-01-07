@@ -11,7 +11,7 @@ import TextTimeline from "./elements-timeline/TextTimeline";
 import { throttle } from 'lodash';
 import GlobalKeyHandlerProps from "../../../components/editor/keys/GlobalKeyHandlerProps";
 import toast from "react-hot-toast";
-import { GripVertical, Clock, Film, Type, Music, RefreshCw, X } from 'lucide-react';
+import { GripVertical, Clock, Film, Type, Music, RefreshCw, X, ZoomIn, ZoomOut, Ruler } from 'lucide-react';
 import { MediaFile, TextElement } from "@/app/types";
 import { getVideoDuration } from "@/app/utils/videoDimensions";
 export const Timeline = () => {
@@ -49,6 +49,48 @@ export const Timeline = () => {
         }, 100),
         [dispatch]
     );
+
+    // Zoom levels (pixels per second)
+    const MIN_ZOOM = 50;
+    const MAX_ZOOM = 500;
+    const DEFAULT_ZOOM = 100;
+
+    // Convert zoom value to slider position (0-100)
+    const zoomToSlider = (zoom: number): number => {
+        return ((zoom - MIN_ZOOM) / (MAX_ZOOM - MIN_ZOOM)) * 100;
+    };
+
+    // Convert slider position (0-100) to zoom value
+    const sliderToZoom = (sliderValue: number): number => {
+        return MIN_ZOOM + (sliderValue / 100) * (MAX_ZOOM - MIN_ZOOM);
+    };
+
+    const handleZoomSliderChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const sliderValue = Number(e.target.value);
+        const newZoom = Math.round(sliderToZoom(sliderValue));
+        dispatch(setTimelineZoom(newZoom));
+    };
+
+    const handleZoomIn = () => {
+        const newZoom = Math.min(MAX_ZOOM, timelineZoom + 25);
+        dispatch(setTimelineZoom(newZoom));
+    };
+
+    const handleZoomOut = () => {
+        const newZoom = Math.max(MIN_ZOOM, timelineZoom - 25);
+        dispatch(setTimelineZoom(newZoom));
+    };
+
+    const handleZoomFit = () => {
+        // Fit timeline to show entire duration with some padding
+        if (!timelineRef.current || duration === 0) return;
+        
+        const containerWidth = timelineRef.current.clientWidth - 32; // Account for padding
+        const padding = 0.1; // 10% padding on each side
+        const targetZoom = (containerWidth * (1 - padding * 2)) / duration;
+        const clampedZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, targetZoom));
+        dispatch(setTimelineZoom(clampedZoom));
+    };
 
     // Helper function to get maximum video duration (end of last video clip)
     const getMaxVideoDuration = useCallback((): number => {
@@ -654,6 +696,44 @@ export const Timeline = () => {
                     <span className="text-xs font-bold uppercase tracking-wider">Timeline</span>
                 </div>
                 <div className="flex items-center gap-4">
+                    {/* Zoom Controls */}
+                    <div className="flex items-center gap-2">
+                        <button
+                            onClick={handleZoomFit}
+                            className="p-1.5 text-slate-300 hover:text-white hover:bg-slate-700/50 rounded transition-colors"
+                            title="Fit to Timeline"
+                        >
+                            <Ruler className="w-4 h-4" />
+                        </button>
+                        <button
+                            onClick={handleZoomOut}
+                            disabled={timelineZoom <= MIN_ZOOM}
+                            className="p-1.5 text-slate-300 hover:text-white hover:bg-slate-700/50 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                            title="Zoom Out"
+                        >
+                            <ZoomOut className="w-4 h-4" />
+                        </button>
+                        <div className="flex items-center w-40">
+                            <input
+                                type="range"
+                                min="0"
+                                max="100"
+                                step="1"
+                                value={zoomToSlider(timelineZoom)}
+                                onChange={handleZoomSliderChange}
+                                className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                                title={`Zoom: ${timelineZoom}px/s`}
+                            />
+                        </div>
+                        <button
+                            onClick={handleZoomIn}
+                            disabled={timelineZoom >= MAX_ZOOM}
+                            className="p-1.5 text-slate-300 hover:text-white hover:bg-slate-700/50 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                            title="Zoom In"
+                        >
+                            <ZoomIn className="w-4 h-4" />
+                        </button>
+                    </div>
                     <span className="text-[10px] text-slate-500">
                         {isScrubbing ? 'Scrubbing' : 'Ready'}
                     </span>

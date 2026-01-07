@@ -45,6 +45,9 @@ export interface MediaFile {
 
     // Supabase storage reference (for fallback when IndexedDB is cleared)
     supabaseFileId?: string; // The file ID in Supabase storage (format: {fileId}.{ext})
+    
+    // Upload status
+    status?: 'uploading' | 'ready' | 'error';
 }
 
 export interface TextElement {

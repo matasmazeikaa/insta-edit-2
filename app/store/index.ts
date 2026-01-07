@@ -114,7 +114,7 @@ export const getFile = async (fileId: string) => {
  * @param supabaseFileId - The file ID in Supabase storage (format: {fileId}.{ext})
  * @param originalFileName - The original filename
  * @param userId - The user ID for Supabase access
- * @param onProgress - Optional progress callback for video downloads
+ * @param onProgress - Optional progress callback for media downloads
  */
 export const getFileWithFallback = async (
     fileId: string,
@@ -147,7 +147,7 @@ export const getFileWithFallback = async (
             return file;
         } catch (error) {
             console.error('Error downloading file from Supabase fallback:', error);
-            toast.error('Failed to load video from cloud storage');
+            toast.error('Failed to load file from cloud storage');
             return null;
         }
     }

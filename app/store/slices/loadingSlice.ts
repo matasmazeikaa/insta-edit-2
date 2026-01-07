@@ -1,20 +1,22 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
+import { MediaType } from '@/app/types';
 
-export interface VideoLoadingItem {
+export interface MediaLoadingItem {
     fileId: string;
     fileName: string;
+    type: MediaType;
     progress: number; // 0-100
     status: 'loading' | 'completed' | 'error';
     error?: string;
 }
 
 interface LoadingState {
-    videos: VideoLoadingItem[];
-    isActive: boolean; // Whether any videos are currently loading
+    media: MediaLoadingItem[];
+    isActive: boolean; // Whether any media files are currently loading
 }
 
 const initialState: LoadingState = {
-    videos: [],
+    media: [],
     isActive: false,
 };
 
@@ -22,79 +24,79 @@ const loadingSlice = createSlice({
     name: 'loading',
     initialState,
     reducers: {
-        addVideoLoading: (state, action: PayloadAction<{ fileId: string; fileName: string }>) => {
-            const { fileId, fileName } = action.payload;
+        addMediaLoading: (state, action: PayloadAction<{ fileId: string; fileName: string; type: MediaType }>) => {
+            const { fileId, fileName, type } = action.payload;
             // Check if already exists
-            if (!state.videos.find(v => v.fileId === fileId)) {
-                state.videos.push({
+            if (!state.media.find(m => m.fileId === fileId)) {
+                state.media.push({
                     fileId,
                     fileName,
+                    type,
                     progress: 0,
                     status: 'loading',
                 });
                 state.isActive = true;
             }
         },
-        updateVideoProgress: (state, action: PayloadAction<{ fileId: string; progress: number }>) => {
+        updateMediaProgress: (state, action: PayloadAction<{ fileId: string; progress: number }>) => {
             const { fileId, progress } = action.payload;
-            const video = state.videos.find(v => v.fileId === fileId);
-            if (video) {
-                video.progress = Math.min(100, Math.max(0, progress));
+            const mediaItem = state.media.find(m => m.fileId === fileId);
+            if (mediaItem) {
+                mediaItem.progress = Math.min(100, Math.max(0, progress));
             }
         },
-        completeVideoLoading: (state, action: PayloadAction<{ fileId: string }>) => {
+        completeMediaLoading: (state, action: PayloadAction<{ fileId: string }>) => {
             const { fileId } = action.payload;
-            const video = state.videos.find(v => v.fileId === fileId);
-            if (video) {
-                video.status = 'completed';
-                video.progress = 100;
+            const mediaItem = state.media.find(m => m.fileId === fileId);
+            if (mediaItem) {
+                mediaItem.status = 'completed';
+                mediaItem.progress = 100;
             }
-            // Check if all videos are done
-            const allDone = state.videos.every(v => v.status === 'completed' || v.status === 'error');
+            // Check if all media files are done
+            const allDone = state.media.every(m => m.status === 'completed' || m.status === 'error');
             if (allDone) {
                 state.isActive = false;
             }
         },
-        errorVideoLoading: (state, action: PayloadAction<{ fileId: string; error: string }>) => {
+        errorMediaLoading: (state, action: PayloadAction<{ fileId: string; error: string }>) => {
             const { fileId, error } = action.payload;
-            const video = state.videos.find(v => v.fileId === fileId);
-            if (video) {
-                video.status = 'error';
-                video.error = error;
+            const mediaItem = state.media.find(m => m.fileId === fileId);
+            if (mediaItem) {
+                mediaItem.status = 'error';
+                mediaItem.error = error;
             }
-            // Check if all videos are done
-            const allDone = state.videos.every(v => v.status === 'completed' || v.status === 'error');
+            // Check if all media files are done
+            const allDone = state.media.every(m => m.status === 'completed' || m.status === 'error');
             if (allDone) {
                 state.isActive = false;
             }
         },
-        removeVideoLoading: (state, action: PayloadAction<{ fileId: string }>) => {
+        removeMediaLoading: (state, action: PayloadAction<{ fileId: string }>) => {
             const { fileId } = action.payload;
-            state.videos = state.videos.filter(v => v.fileId !== fileId);
-            // Update isActive based on remaining videos
-            state.isActive = state.videos.some(v => v.status === 'loading');
+            state.media = state.media.filter(m => m.fileId !== fileId);
+            // Update isActive based on remaining media files
+            state.isActive = state.media.some(m => m.status === 'loading');
         },
-        clearCompletedVideos: (state) => {
-            // Remove completed videos after a delay (handled by component)
-            state.videos = state.videos.filter(v => v.status === 'loading' || v.status === 'error');
-            state.isActive = state.videos.some(v => v.status === 'loading');
+        clearCompletedMedia: (state) => {
+            // Remove completed media files after a delay (handled by component)
+            state.media = state.media.filter(m => m.status === 'loading' || m.status === 'error');
+            state.isActive = state.media.some(m => m.status === 'loading');
         },
-        clearAllVideos: (state) => {
-            state.videos = [];
+        clearAllMedia: (state) => {
+            state.media = [];
             state.isActive = false;
         },
     },
 });
 
 export const {
-    addVideoLoading,
-    updateVideoProgress,
-    completeVideoLoading,
-    errorVideoLoading,
-    removeVideoLoading,
-    clearCompletedVideos,
-    clearAllVideos,
+    addMediaLoading,
+    updateMediaProgress,
+    completeMediaLoading,
+    errorMediaLoading,
+    removeMediaLoading,
+    clearCompletedMedia,
+    clearAllMedia,
 } = loadingSlice.actions;
 
 export default loadingSlice.reducer;
-
