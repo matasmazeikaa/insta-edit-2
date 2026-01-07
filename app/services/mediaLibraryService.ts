@@ -235,3 +235,45 @@ export async function downloadMediaFile(libraryItem: LibraryItem, userId: string
     }
 }
 
+/**
+ * Download a media file from Supabase storage using file ID and original filename
+ * This is used for fallback when IndexedDB is cleared
+ * @param supabaseFileId - The file ID in Supabase (format: {fileId}.{ext})
+ * @param originalFileName - The original filename (used to determine file type)
+ * @param userId - The user ID
+ */
+export async function downloadMediaFileById(
+    supabaseFileId: string,
+    originalFileName: string,
+    userId: string
+): Promise<File> {
+    const supabase = createClient();
+    const userFolder = getUserFolderPath(userId);
+    
+    // The file is stored as {fileId}.{ext} in the user's folder
+    // supabaseFileId already contains the extension
+    const filePath = `${userFolder}/${supabaseFileId}`;
+
+    try {
+        // Download file from Supabase storage
+        const { data, error } = await supabase.storage
+            .from(STORAGE_BUCKET)
+            .download(filePath);
+
+        if (error) {
+            throw error;
+        }
+
+        if (!data) {
+            throw new Error('No data received from download');
+        }
+
+        // Convert blob to File object
+        const file = new File([data], originalFileName, { type: data.type });
+        return file;
+    } catch (error: any) {
+        console.error('Error downloading file by ID:', error);
+        throw new Error(error.message || 'Failed to download file from Supabase');
+    }
+}
+

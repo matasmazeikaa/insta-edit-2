@@ -108,6 +108,54 @@ export const getFile = async (fileId: string) => {
     }
 };
 
+/**
+ * Get file from IndexedDB, with fallback to Supabase if not found
+ * @param fileId - The local file ID used in IndexedDB
+ * @param supabaseFileId - The file ID in Supabase storage (format: {fileId}.{ext})
+ * @param originalFileName - The original filename
+ * @param userId - The user ID for Supabase access
+ * @param onProgress - Optional progress callback for video downloads
+ */
+export const getFileWithFallback = async (
+    fileId: string,
+    supabaseFileId: string | undefined,
+    originalFileName: string,
+    userId: string | null,
+    onProgress?: (progress: number) => void
+): Promise<File | null> => {
+    if (typeof window === 'undefined') return null;
+    
+    // First, try to get from IndexedDB
+    const cachedFile = await getFile(fileId);
+    if (cachedFile) {
+        return cachedFile;
+    }
+
+    // If not found in IndexedDB and we have a Supabase file ID, download from Supabase
+    if (supabaseFileId && userId) {
+        try {
+            const { downloadMediaFileById } = await import('../services/mediaLibraryService');
+            const file = await downloadMediaFileById(supabaseFileId, originalFileName, userId);
+            
+            // Store the downloaded file in IndexedDB for future use
+            if (onProgress) {
+                await storeFile(file, fileId, onProgress);
+            } else {
+                await storeFile(file, fileId);
+            }
+            
+            return file;
+        } catch (error) {
+            console.error('Error downloading file from Supabase fallback:', error);
+            toast.error('Failed to load video from cloud storage');
+            return null;
+        }
+    }
+
+    // No fallback available
+    return null;
+};
+
 export const deleteFile = async (fileId: string) => {
     if (typeof window === 'undefined') return;
     try {

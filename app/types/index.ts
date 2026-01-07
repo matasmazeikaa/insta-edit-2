@@ -42,6 +42,9 @@ export interface MediaFile {
     // Placeholder support
     isPlaceholder?: boolean;
     placeholderType?: MediaType; // Type of media expected for this placeholder
+
+    // Supabase storage reference (for fallback when IndexedDB is cleared)
+    supabaseFileId?: string; // The file ID in Supabase storage (format: {fileId}.{ext})
 }
 
 export interface TextElement {

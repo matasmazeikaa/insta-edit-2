@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { getFile, storeProject, useAppDispatch, useAppSelector } from "../../../store";
+import { getFile, getFileWithFallback, storeProject, useAppDispatch, useAppSelector } from "../../../store";
 import { getProject } from "../../../store";
 import { setCurrentProject, updateProject } from "../../../store/slices/projectsSlice";
 import { rehydrate, setMediaFiles } from '../../../store/slices/projectSlice';
@@ -14,6 +14,7 @@ import VideoLoader from "../../../components/editor/VideoLoader";
 import Image from "next/image";
 import { useAuth } from "../../../contexts/AuthContext";
 import { createClient } from "../../../utils/supabase/client";
+import { addVideoLoading, updateVideoProgress, completeVideoLoading, errorVideoLoading } from "../../../store/slices/loadingSlice";
 
 export default function Project({ params }: { params: { id: string } }) {
     const { id } = params;
@@ -22,6 +23,7 @@ export default function Project({ params }: { params: { id: string } }) {
     const { currentProjectId } = useAppSelector((state) => state.projects);
     const [isLoading, setIsLoading] = useState(true);
     const { currentTime, duration, fps } = useAppSelector((state) => state.projectState);
+    const { user } = useAuth();
 
     const router = useRouter();
     
@@ -68,10 +70,48 @@ export default function Project({ params }: { params: { id: string } }) {
                                     return null;
                                 }
 
-                                const file = await getFile(media.fileId);
+                                // For videos, use fallback mechanism (IndexedDB -> Supabase)
+                                // For other media types, just try IndexedDB for now
+                                let file: File | null = null;
+                                
+                                if (media.type === 'video' && media.supabaseFileId && user) {
+                                    // Check if file exists in IndexedDB first to determine if we need to show loading
+                                    const cachedFile = await getFile(media.fileId);
+                                    
+                                    if (!cachedFile) {
+                                        // File not in cache, will download from Supabase - show loading
+                                        dispatch(addVideoLoading({ fileId: media.fileId, fileName: media.fileName }));
+                                    }
+                                    
+                                    // Use fallback for videos with Supabase file ID
+                                    file = await getFileWithFallback(
+                                        media.fileId,
+                                        media.supabaseFileId,
+                                        media.fileName,
+                                        user.id,
+                                        !cachedFile ? (progress) => {
+                                            dispatch(updateVideoProgress({ fileId: media.fileId, progress }));
+                                        } : undefined
+                                    );
+                                    
+                                    if (!cachedFile) {
+                                        if (file) {
+                                            dispatch(completeVideoLoading({ fileId: media.fileId }));
+                                        } else {
+                                            dispatch(errorVideoLoading({ fileId: media.fileId, error: 'Failed to download from cloud storage' }));
+                                        }
+                                    }
+                                } else {
+                                    // For non-video or videos without Supabase ID, try regular getFile
+                                    file = await getFile(media.fileId);
+                                }
 
                                 if (!file && !media.isPlaceholder) {
                                     console.warn(`File not found for media ${media.fileName || media.id}`);
+                                    return null;
+                                }
+
+                                if (!file) {
                                     return null;
                                 }
 
@@ -86,7 +126,7 @@ export default function Project({ params }: { params: { id: string } }) {
             }
         };
         loadProject();
-    }, [dispatch, currentProjectId]);
+    }, [dispatch, currentProjectId, user]);
 
 
     // save

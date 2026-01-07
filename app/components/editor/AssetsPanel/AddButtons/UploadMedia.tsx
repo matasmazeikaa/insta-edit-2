@@ -9,6 +9,7 @@ import { useAuth } from "../../../../contexts/AuthContext";
 import toast from 'react-hot-toast';
 import { MediaFile } from "../../../../types";
 import { getVideoDimensions, calculateVideoFit } from "../../../../utils/videoDimensions";
+import { uploadMediaFile } from "../../../../services/mediaLibraryService";
 
 const DEFAULT_MEDIA_TIME = 2;
 const CANVAS_WIDTH = 1080;
@@ -116,6 +117,7 @@ export default function AddMedia() {
                 originalWidth: fileType === 'video' ? originalWidth : undefined,
                 originalHeight: fileType === 'video' ? originalHeight : undefined,
                 status: 'uploading',
+                // supabaseFileId will be set after upload to Supabase (for videos only)
             };
             
             updatedMedia.push(newMediaFile);
@@ -138,19 +140,36 @@ export default function AddMedia() {
                 dispatch(addVideoLoading({ fileId, fileName: file.name }));
                 
                 try {
-                    // Store file with progress tracking
+                    // Upload to Supabase first (for fallback when IndexedDB is cleared)
+                    let supabaseFileId: string | undefined;
+                    try {
+                        const libraryItem = await uploadMediaFile(file, user.id);
+                        // The Supabase file ID is stored as {fileId}.{ext} in the user's folder
+                        // We need to extract it from the libraryItem
+                        const fileExt = file.name.split('.').pop() || 'mp4';
+                        supabaseFileId = `${libraryItem.id}.${fileExt}`;
+                    } catch (uploadError: any) {
+                        console.warn('Failed to upload video to Supabase (will continue with local storage only):', uploadError);
+                        // Continue without Supabase ID - video will work locally but won't have fallback
+                    }
+                    
+                    // Store file in IndexedDB with progress tracking
                     await storeFile(file, fileId, (progress) => {
                         dispatch(updateVideoProgress({ fileId, progress }));
                     });
                     
-                    // Mark as completed
-                    dispatch(completeVideoLoading({ fileId }));
-                    
-                    // Update status to ready
+                    // Update media file with Supabase file ID
                     const currentMediaFiles = store.getState().projectState.mediaFiles;
                     dispatch(setMediaFiles(
-                        currentMediaFiles.map(m => m.fileId === fileId ? { ...m, status: 'ready' as const } : m)
+                        currentMediaFiles.map(m => 
+                            m.fileId === fileId 
+                                ? { ...m, status: 'ready' as const, supabaseFileId } 
+                                : m
+                        )
                     ));
+                    
+                    // Mark as completed
+                    dispatch(completeVideoLoading({ fileId }));
                 } catch (error: any) {
                     toast.error(`Failed to load ${file.name}: ${error.message}`);
                     console.error('Loading error:', error);

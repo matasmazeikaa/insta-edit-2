@@ -14,7 +14,7 @@ import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
 import { categorizeFile } from "@/app/utils/utils";
 import { getVideoDimensions, calculateVideoFit } from "@/app/utils/videoDimensions";
-import { downloadMediaFile } from "@/app/services/mediaLibraryService";
+import { downloadMediaFile, uploadMediaFile } from "@/app/services/mediaLibraryService";
 import { useAuth } from "@/app/contexts/AuthContext";
 
 const DEFAULT_MEDIA_TIME = 2;
@@ -67,8 +67,21 @@ export default function LeftSidebar() {
             const fileType = categorizeFile(file.type);
             
             // Track loading for videos
+            let supabaseFileId: string | undefined;
             if (fileType === 'video') {
                 dispatch(addVideoLoading({ fileId, fileName: file.name }));
+                
+                // Upload to Supabase first (for fallback when IndexedDB is cleared)
+                if (user) {
+                    try {
+                        const libraryItem = await uploadMediaFile(file, user.id);
+                        const fileExt = file.name.split('.').pop() || 'mp4';
+                        supabaseFileId = `${libraryItem.id}.${fileExt}`;
+                    } catch (uploadError: any) {
+                        console.warn('Failed to upload video to Supabase (will continue with local storage only):', uploadError);
+                        // Continue without Supabase ID - video will work locally but won't have fallback
+                    }
+                }
             }
             
             // Store file with progress tracking for videos
@@ -172,6 +185,7 @@ export default function LeftSidebar() {
                     originalHeight: fileType === 'video' ? originalHeight : undefined,
                     isPlaceholder: false,
                     placeholderType: undefined,
+                    supabaseFileId: fileType === 'video' ? supabaseFileId : undefined,
                 };
                 replacedCount++;
             } else {
@@ -219,6 +233,7 @@ export default function LeftSidebar() {
                     zoom: fileType === 'video' ? 1.0 : undefined,
                     originalWidth: fileType === 'video' ? originalWidth : undefined,
                     originalHeight: fileType === 'video' ? originalHeight : undefined,
+                    supabaseFileId: fileType === 'video' ? supabaseFileId : undefined,
                 });
                 addedCount++;
             }
@@ -342,6 +357,14 @@ export default function LeftSidebar() {
                 // Store in IndexedDB with progress tracking for videos
                 const fileId = crypto.randomUUID();
                 
+                // Construct Supabase file ID for videos (format: {fileId}.{ext})
+                const supabaseFileId = fileType === 'video' && libraryItem.id
+                    ? (() => {
+                          const fileExt = libraryItem.name.split('.').pop() || 'mp4';
+                          return `${libraryItem.id}.${fileExt}`;
+                      })()
+                    : undefined;
+                
                 // Track loading for videos
                 if (fileType === 'video') {
                     dispatch(addVideoLoading({ fileId, fileName: libraryItem.name }));
@@ -450,6 +473,7 @@ export default function LeftSidebar() {
                         originalHeight: fileType === 'video' ? originalHeight : undefined,
                         isPlaceholder: false,
                         placeholderType: undefined,
+                        supabaseFileId: fileType === 'video' ? supabaseFileId : undefined,
                     };
                     replacedCount++;
                 } else {
@@ -494,6 +518,7 @@ export default function LeftSidebar() {
                         zoom: fileType === 'video' ? 1.0 : undefined,
                         originalWidth: fileType === 'video' ? originalWidth : undefined,
                         originalHeight: fileType === 'video' ? originalHeight : undefined,
+                        supabaseFileId: fileType === 'video' ? supabaseFileId : undefined,
                     });
                     addedCount++;
                 }
