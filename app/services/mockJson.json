@@ -1,0 +1,24 @@
+{
+    "durations": [
+        1,
+        1,
+        2,
+        1,
+        1,
+        1,
+        1
+    ],
+    "textLayers": [
+        {
+            "content": "POV: the Kyrgyzstan trip makes it out of the group chat",
+            "start": 0,
+            "duration": 8,
+            "verticalPos": 286.17,
+            "fontSize": 18.252
+        }
+    ],
+    "settings": {
+        "videoMode": "cover",
+        "videoScale": 1
+    }
+}

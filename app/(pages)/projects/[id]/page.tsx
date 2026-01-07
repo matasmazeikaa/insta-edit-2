@@ -1,0 +1,180 @@
+"use client";
+import { useEffect, useState } from "react";
+import { getFile, storeProject, useAppDispatch, useAppSelector } from "../../../store";
+import { getProject } from "../../../store";
+import { setCurrentProject, updateProject } from "../../../store/slices/projectsSlice";
+import { rehydrate, setMediaFiles } from '../../../store/slices/projectSlice';
+import { useRouter } from 'next/navigation';
+import { Timeline } from "../../../components/editor/timeline/Timline";
+import { PreviewPlayer } from "../../../components/editor/player/remotion/Player";
+import { MediaFile } from "@/app/types";
+import LeftSidebar from "../../../components/editor/LeftSidebar";
+import RightSidebar from "../../../components/editor/RightSidebar";
+import Image from "next/image";
+import { useAuth } from "../../../contexts/AuthContext";
+import { createClient } from "../../../utils/supabase/client";
+
+export default function Project({ params }: { params: { id: string } }) {
+    const { id } = params;
+    const dispatch = useAppDispatch();
+    const projectState = useAppSelector((state) => state.projectState);
+    const { currentProjectId } = useAppSelector((state) => state.projects);
+    const [isLoading, setIsLoading] = useState(true);
+    const { currentTime, duration, fps } = useAppSelector((state) => state.projectState);
+
+    const router = useRouter();
+    
+    // Calculate frame info for status bar
+    const currentFrame = Math.round(currentTime * fps);
+    const totalFrames = Math.round(duration * fps);
+    const formatTime = (seconds: number) => {
+        return `${seconds.toFixed(1)}s`;
+    };
+    // when page is loaded set the project id if it exists
+    useEffect(() => {
+        const loadProject = async () => {
+            if (id) {
+                setIsLoading(true);
+                const project = await getProject(id);
+                if (project) {
+                    dispatch(setCurrentProject(id));
+                    setIsLoading(false);
+                } else {
+                    router.push('/404');
+                }
+            }
+        };
+        loadProject();
+    }, [id, dispatch, router]);
+
+    // set project state from with the current project id
+    useEffect(() => {
+        const loadProject = async () => {
+            if (currentProjectId) {
+                const project = await getProject(currentProjectId);
+                if (project) {
+                    dispatch(rehydrate(project));
+
+                    dispatch(setMediaFiles((await Promise.all(
+                        project.mediaFiles.map(async (media: MediaFile) => {
+                            try {
+                                if (media.isPlaceholder) {
+                                    return media;
+                                }
+
+                                // Skip placeholders or media without fileId
+                                if (!media.fileId || media.fileId.trim() === '') {
+                                    return null;
+                                }
+
+                                const file = await getFile(media.fileId);
+
+                                if (!file && !media.isPlaceholder) {
+                                    console.warn(`File not found for media ${media.fileName || media.id}`);
+                                    return null;
+                                }
+
+                                return { ...media, src: URL.createObjectURL(file) };
+                            } catch (error) {
+                                console.error(`Failed to load file for media ${media.fileName || media.id}:`, error);
+                                return null;
+                            }
+                        })
+                    )).filter((media): media is MediaFile => media !== null)));
+                }
+            }
+        };
+        loadProject();
+    }, [dispatch, currentProjectId]);
+
+
+    // save
+    useEffect(() => {
+        const saveProject = async () => {
+            if (!projectState || projectState.id != currentProjectId) return;
+            await storeProject(projectState);
+            dispatch(updateProject(projectState));
+        };
+        saveProject();
+    }, [projectState, dispatch, currentProjectId]);
+
+
+    return (
+        <div className="flex flex-col h-screen select-none bg-[#0f172a]">
+            {/* Loading screen */}
+            {isLoading && (
+                <div className="fixed inset-0 flex items-center bg-black bg-opacity-50 justify-center z-50">
+                    <div className="bg-black bg-opacity-70 p-6 rounded-lg flex flex-col items-center">
+                        <div className="w-16 h-16 border-4 border-t-white border-r-white border-opacity-30 border-t-opacity-100 rounded-full animate-spin"></div>
+                        <p className="mt-4 text-white text-lg">Loading project...</p>
+                    </div>
+                </div>
+            )}
+            
+
+            {/* Main Content */}
+            <div className="flex flex-1 overflow-hidden">
+                {/* Left Sidebar */}
+                <LeftSidebar />
+
+                {/* Center - Video Preview */}
+                <div className="flex items-center justify-center flex-col flex-1 overflow-hidden bg-[#0a0e1a]">
+                    <PreviewPlayer />
+                </div>
+
+                {/* Right Sidebar */}
+                <RightSidebar />
+            </div>
+
+            {/* Timeline at bottom */}
+            <div className="flex flex-row border-t border-slate-800 bg-[#0f172a] z-1" style={{ zIndex: 1 }}>
+                <div className="bg-[#0f172a] flex flex-col items-center justify-center">
+                    <div className="relative h-16 flex items-center justify-center w-16">
+                        <Image
+                            alt="Video"
+                            className="invert h-auto w-auto max-w-[30px] max-h-[30px]"
+                            height={30}
+                            width={30}
+                            src="https://www.svgrepo.com/show/532727/video.svg"
+                        />
+                    </div>
+                    <div className="relative h-16 flex items-center justify-center w-16">
+                        <Image
+                            alt="Audio"
+                            className="invert h-auto w-auto max-w-[30px] max-h-[30px]"
+                            height={30}
+                            width={30}
+                            src="https://www.svgrepo.com/show/532708/music.svg"
+                        />
+                    </div>
+                    <div className="relative h-16 flex items-center justify-center w-16">
+                        <Image
+                            alt="Image"
+                            className="invert h-auto w-auto max-w-[30px] max-h-[30px]"
+                            height={30}
+                            width={30}
+                            src="https://www.svgrepo.com/show/535454/image.svg"
+                        />
+                    </div>
+                    <div className="relative h-16 flex items-center justify-center w-16">
+                        <Image
+                            alt="Text"
+                            className="invert h-auto w-auto max-w-[30px] max-h-[30px]"
+                            height={30}
+                            width={30}
+                            src="https://www.svgrepo.com/show/535686/text.svg"
+                        />
+                    </div>
+                </div>
+                <div className="flex-1 flex flex-col !z-1">
+                    <Timeline />
+                    {/* Status Bar */}
+                    <div className="flex items-center justify-between px-4 py-2 bg-[#0f172a] border-t border-slate-800 text-xs text-slate-400">
+                        <span>Ready</span>
+                        <span>{currentFrame} / {totalFrames} frames ({formatTime(currentTime)} / {formatTime(duration)})</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+}
