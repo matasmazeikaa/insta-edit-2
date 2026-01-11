@@ -7,22 +7,42 @@ import { MediaFile, TextElement } from "@/app/types";
 import { useAppDispatch } from "@/app/store";
 import { useState } from "react";
 import toast from "react-hot-toast";
-import { Link, Loader2, Sparkles, Upload } from "lucide-react";
+import { Link, Loader2, Sparkles, Upload, Crown, Lock } from "lucide-react";
 import { analyzeReferenceVideo } from "@/app/services/geminiService";
 import { DEFAULT_TEXT_STYLE } from "@/app/constants";
 import { storeFile } from "@/app/store";
+import { useAuth } from "@/app/contexts/AuthContext";
+import { incrementAIUsage } from "@/app/services/subscriptionService";
+import UpgradeModal from "@/app/components/UpgradeModal";
 
 export default function AITools() {
   const dispatch = useAppDispatch();
   const { filesID, textElements } = useAppSelector((state) => state.projectState);
+  const { user, usageInfo, canUseAI, isPremium, refreshUsage } = useAuth();
   const [isImporting, setIsImporting] = useState(false);
   const [referenceUrl, setReferenceUrl] = useState("");
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
 
   const handleImportReferenceVideo = async (file: File) => {
+    // Check if user is logged in
+    if (!user) {
+      toast.error("Please sign in to use AI features");
+      return;
+    }
+
+    // Check AI usage limits
+    if (!canUseAI) {
+      setShowUpgradeModal(true);
+      return;
+    }
+
     setIsImporting(true);
     try {
       const result = await analyzeReferenceVideo(file);
       
+      // Increment AI usage after successful generation
+      await incrementAIUsage('video_analysis', { fileName: file.name });
+      await refreshUsage();
 
       // Store the video file for audio extraction
       const audioFileId = crypto.randomUUID();
@@ -172,6 +192,18 @@ export default function AITools() {
   const handleUrlImport = async () => {
     if (!referenceUrl.trim()) return;
 
+    // Check if user is logged in
+    if (!user) {
+      toast.error("Please sign in to use AI features");
+      return;
+    }
+
+    // Check AI usage limits
+    if (!canUseAI) {
+      setShowUpgradeModal(true);
+      return;
+    }
+
     setIsImporting(true);
     try {
       // Call API route to scrape the video
@@ -231,26 +263,60 @@ export default function AITools() {
     }
   };
 
+  // Calculate usage display
+  const usedCount = usageInfo?.used || 0;
+  const limitCount = typeof usageInfo?.limit === 'number' ? usageInfo.limit : 3;
+
   return (
     <>
       {/* Reference Upload */}
       <div className="bg-slate-800/30 border border-slate-800 rounded-xl p-4 space-y-3">
-        <div className="flex items-center gap-2 mb-1">
-          <Sparkles className="w-4 h-4 text-purple-400" />
-          <h3 className="text-xs font-bold text-purple-200">
-            AI REFERENCE COPY
-          </h3>
+        <div className="flex items-center justify-between mb-1">
+          <div className="flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-purple-400" />
+            <h3 className="text-xs font-bold text-purple-200">
+              AI REFERENCE COPY
+            </h3>
+          </div>
+          {isPremium ? (
+            <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-gradient-to-r from-purple-500/20 to-pink-500/20 border border-purple-500/30">
+              <Crown className="w-3 h-3 text-yellow-400" />
+              <span className="text-[10px] font-medium text-purple-300">Pro</span>
+            </span>
+          ) : user && (
+            <span className="text-[10px] text-slate-400">
+              {usedCount}/{limitCount} used
+            </span>
+          )}
         </div>
         <p className="text-[10px] text-slate-500 leading-tight">
           Upload a video or paste a URL (TikTok, Instagram, YouTube) to copy its
           cuts and text pacing automatically.
         </p>
 
+        {/* Usage warning for free users */}
+        {user && !isPremium && !canUseAI && (
+          <div className="flex items-center gap-2 p-2 rounded-lg bg-amber-500/10 border border-amber-500/20">
+            <Lock className="w-3 h-3 text-amber-400" />
+            <span className="text-[10px] text-amber-300">
+              Limit reached.{" "}
+              <button 
+                onClick={() => setShowUpgradeModal(true)}
+                className="underline hover:text-amber-200"
+              >
+                Upgrade to Pro
+              </button>
+            </span>
+          </div>
+        )}
+
         <label
-          className={`w-full py-3 border border-dashed border-slate-700 rounded-lg flex items-center justify-center gap-2 cursor-pointer transition-all ${
+          className={`w-full py-3 border border-dashed rounded-lg flex items-center justify-center gap-2 cursor-pointer transition-all ${
             isImporting
-              ? "bg-purple-500/10 cursor-wait"
-              : "hover:bg-slate-800 hover:border-purple-500/50"
+              ? "bg-purple-500/10 cursor-wait border-slate-700"
+              : !canUseAI && user
+              ? "bg-slate-800/50 border-slate-700 cursor-not-allowed opacity-60"
+              : "border-slate-700 hover:bg-slate-800 hover:border-purple-500/50"
           }`}
         >
           {isImporting ? (
@@ -262,7 +328,11 @@ export default function AITools() {
             </>
           ) : (
             <>
-              <Upload className="w-4 h-4 text-slate-400" />
+              {!canUseAI && user ? (
+                <Lock className="w-4 h-4 text-slate-500" />
+              ) : (
+                <Upload className="w-4 h-4 text-slate-400" />
+              )}
               <span className="text-xs font-bold text-slate-300">
                 Upload Reference
               </span>
@@ -273,7 +343,7 @@ export default function AITools() {
             accept="video/*"
             className="hidden"
             onChange={handleReferenceUpload}
-            disabled={isImporting}
+            disabled={isImporting || (!canUseAI && !!user)}
           />
         </label>
 
@@ -285,18 +355,18 @@ export default function AITools() {
               value={referenceUrl}
               onChange={(e) => setReferenceUrl(e.target.value)}
               placeholder="Paste TikTok/Instagram/YouTube URL"
-              disabled={isImporting}
+              disabled={isImporting || (!canUseAI && !!user)}
               onKeyDown={(e) => {
-                if (e.key === "Enter" && !isImporting) {
+                if (e.key === "Enter" && !isImporting && canUseAI) {
                   handleUrlImport();
                 }
               }}
-              className="w-full pl-7 pr-2 py-2 text-xs bg-slate-900/50 border border-slate-700 rounded-lg text-slate-300 placeholder-slate-600 focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/20 disabled:opacity-50 disabled:cursor-wait"
+              className="w-full pl-7 pr-2 py-2 text-xs bg-slate-900/50 border border-slate-700 rounded-lg text-slate-300 placeholder-slate-600 focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
             />
           </div>
           <button
             onClick={handleUrlImport}
-            disabled={isImporting || !referenceUrl.trim()}
+            disabled={isImporting || !referenceUrl.trim() || (!canUseAI && !!user)}
             className="px-3 py-2 bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
           >
             {isImporting ? (
@@ -308,6 +378,14 @@ export default function AITools() {
           </button>
         </div>
       </div>
+
+      {/* Upgrade Modal */}
+      <UpgradeModal 
+        isOpen={showUpgradeModal}
+        onClose={() => setShowUpgradeModal(false)}
+        usedCount={usedCount}
+        limitCount={limitCount}
+      />
     </>
   );
 }

@@ -40,8 +40,11 @@ export async function updateSession(request: NextRequest) {
   const isPublicRoute = publicRoutes.some(route => 
     request.nextUrl.pathname === route || request.nextUrl.pathname.startsWith('/auth')
   )
+  
+  // API routes that should bypass auth (webhooks, etc.)
+  const isWebhookRoute = request.nextUrl.pathname.startsWith('/api/stripe/webhook')
 
-  if (!user && !isPublicRoute) {
+  if (!user && !isPublicRoute && !isWebhookRoute) {
     // no user, redirect to login page with return URL
     const url = request.nextUrl.clone()
     url.pathname = '/login'
