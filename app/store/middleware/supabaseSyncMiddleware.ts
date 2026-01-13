@@ -8,6 +8,11 @@ const SAVE_DEBOUNCE_MS = 1000; // Save 1 second after last action
 // Track if we're currently saving to prevent duplicate saves
 let isSaving = false;
 
+// Type guard to check if action has a type property
+const isActionWithType = (action: unknown): action is { type: string } => {
+  return typeof action === 'object' && action !== null && 'type' in action;
+};
+
 /**
  * Redux middleware that automatically saves project state to Supabase
  * after every action that modifies the project state.
@@ -27,6 +32,7 @@ export const supabaseSyncMiddleware: Middleware = (store) => (next) => (action) 
   if (
     currentProjectId &&
     projectState.id === currentProjectId &&
+    isActionWithType(action) &&
     action.type !== 'projectState/rehydrate' && // Don't save on rehydration
     action.type !== 'projects/rehydrateProjects' && // Don't save on projects rehydration
     typeof window !== 'undefined' // Only run in browser

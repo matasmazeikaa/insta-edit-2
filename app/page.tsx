@@ -1,9 +1,10 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import Link from "next/link";
+import NextLink from "next/link";
+import { useRouter } from 'next/navigation';
 import { useAppDispatch, useAppSelector } from './store';
-import { addProject, deleteProject, rehydrateProjects, setCurrentProject } from './store/slices/projectsSlice';
+import { addProject, deleteProject, rehydrateProjects, setCurrentProject, clearProjects } from './store/slices/projectsSlice';
 import { listProjects, storeProject, deleteProject as deleteProjectFromDB } from './store';
 import { listProjectsFromSupabase, loadProjectFromSupabase, deleteProjectFromSupabase, saveProjectToSupabase } from './services/projectService';
 import { ProjectState, MediaFile } from './types';
@@ -21,7 +22,10 @@ import {
     Play,
     Image as ImageIcon,
     Music,
-    Type
+    Type,
+    Link,
+    Wand2,
+    ArrowRight
 } from 'lucide-react';
 
 // Component to display project thumbnail
@@ -180,36 +184,50 @@ function formatDate(dateString: string): string {
 
 export default function Page() {
     const dispatch = useAppDispatch();
+    const router = useRouter();
     const { projects, currentProjectId } = useAppSelector((state) => state.projects);
     const [isCreating, setIsCreating] = useState(false);
     const [newProjectName, setNewProjectName] = useState('');
     const inputRef = useRef<HTMLInputElement>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [deletingId, setDeletingId] = useState<string | null>(null);
+    const [pasteUrl, setPasteUrl] = useState('');
+    const [isCreatingFromLink, setIsCreatingFromLink] = useState(false);
     const { user } = useAuth();
+
+    const previousUserIdRef = useRef<string | null>(null);
 
     useEffect(() => {
         const loadProjects = async () => {
             setIsLoading(true);
+            
+            // Clear Redux state immediately to prevent showing old user's projects
+            dispatch(clearProjects());
+            
             try {
+                // Only load projects if user is logged in
+                if (!user) {
+                    setIsLoading(false);
+                    return;
+                }
+                
                 const localProjects = await listProjects();
                 let cloudProjects: ProjectState[] = [];
                 
-                if (user) {
-                    try {
-                        const supabaseProjects = await listProjectsFromSupabase(user.id);
-                        const loadedProjects = await Promise.all(
-                            supabaseProjects.map(async (record) => {
-                                const fullProject = await loadProjectFromSupabase(record.id, user.id);
-                                return fullProject;
-                            })
-                        );
-                        cloudProjects = loadedProjects.filter((p): p is ProjectState => p !== null);
-                    } catch (error) {
-                        console.error('Error loading projects from Supabase:', error);
-                    }
+                try {
+                    const supabaseProjects = await listProjectsFromSupabase(user.id);
+                    const loadedProjects = await Promise.all(
+                        supabaseProjects.map(async (record) => {
+                            const fullProject = await loadProjectFromSupabase(record.id, user.id);
+                            return fullProject;
+                        })
+                    );
+                    cloudProjects = loadedProjects.filter((p): p is ProjectState => p !== null);
+                } catch (error) {
+                    console.error('Error loading projects from Supabase:', error);
                 }
 
+                // Merge local and cloud projects, with cloud taking precedence
                 const projectMap = new Map<string, ProjectState>();
                 localProjects.forEach(project => {
                     projectMap.set(project.id, project);
@@ -227,6 +245,11 @@ export default function Page() {
                 setIsLoading(false);
             }
         };
+        
+        // Track user changes
+        const currentUserId = user?.id ?? null;
+        previousUserIdRef.current = currentUserId;
+        
         loadProjects();
     }, [dispatch, user]);
 
@@ -293,6 +316,97 @@ export default function Page() {
         } catch (error) {
             console.error('Error creating project:', error);
             toast.error('Failed to create project');
+        }
+    };
+
+    const handleCreateFromLink = async () => {
+        if (!pasteUrl.trim()) return;
+
+        if (!user) {
+            toast.error('You must be logged in to create a project');
+            return;
+        }
+
+        // Validate URL format
+        const urlPattern = /^(https?:\/\/)?(www\.)?(tiktok\.com|vm\.tiktok\.com|instagram\.com|instagr\.am|youtube\.com|youtu\.be)/i;
+        if (!urlPattern.test(pasteUrl.trim())) {
+            toast.error('Please enter a valid TikTok, Instagram, or YouTube URL');
+            return;
+        }
+
+        setIsCreatingFromLink(true);
+
+        // Generate project name from URL
+        let projectName = 'AI Generated Project';
+        try {
+            const url = new URL(pasteUrl.includes('://') ? pasteUrl : `https://${pasteUrl}`);
+            const hostname = url.hostname.replace('www.', '');
+            if (hostname.includes('tiktok')) {
+                projectName = 'TikTok Remix';
+            } else if (hostname.includes('instagram')) {
+                projectName = 'Instagram Remix';
+            } else if (hostname.includes('youtube') || hostname.includes('youtu.be')) {
+                projectName = 'YouTube Remix';
+            }
+        } catch {
+            // Keep default name
+        }
+
+        const newProject: ProjectState = {
+            id: crypto.randomUUID(),
+            projectName,
+            createdAt: new Date().toISOString(),
+            lastModified: new Date().toISOString(),
+            mediaFiles: [],
+            textElements: [],
+            currentTime: 0,
+            isPlaying: false,
+            isMuted: false,
+            duration: 0,
+            activeSection: 'AI',
+            activeElement: 'AI',
+            activeElementIndex: 0,
+            filesID: [],
+            zoomLevel: 1,
+            timelineZoom: 100,
+            enableMarkerTracking: true,
+            resolution: { width: 1080, height: 1920 },
+            fps: 30,
+            aspectRatio: '9:16',
+            history: [],
+            future: [],
+            exportSettings: {
+                resolution: '1080p',
+                quality: 'high',
+                speed: 'fastest',
+                fps: 30,
+                format: 'mp4',
+                includeSubtitles: false,
+            },
+        };
+
+        try {
+            const savedId = await saveProjectToSupabase(newProject, user.id);
+            
+            if (!savedId) {
+                toast.error('Failed to create project in database');
+                setIsCreatingFromLink(false);
+                return;
+            }
+
+            await storeProject(newProject);
+            dispatch(addProject(newProject));
+            dispatch(setCurrentProject(newProject.id));
+            
+            // Navigate to project with auto-analyze URL parameter
+            const encodedUrl = encodeURIComponent(pasteUrl.trim());
+            router.push(`/projects/${newProject.id}?autoAnalyze=${encodedUrl}`);
+            
+            setPasteUrl('');
+        } catch (error) {
+            console.error('Error creating project from link:', error);
+            toast.error('Failed to create project');
+            setIsCreatingFromLink(false);
         }
     };
 
@@ -374,21 +488,114 @@ export default function Page() {
                     </div>
                 ) : (
                     <>
+                        {/* AI Quick Start - Paste Link */}
+                        <div className="mb-6 group relative">
+                            {/* Animated gradient border */}
+                            <div className="absolute -inset-[1px] bg-gradient-to-r from-purple-500 via-pink-500 to-cyan-500 rounded-2xl opacity-70 blur-[2px] group-hover:opacity-100 transition-opacity duration-500" 
+                                style={{ 
+                                    backgroundSize: '200% 200%',
+                                    animation: 'gradient-x 3s ease infinite'
+                                }} 
+                            />
+                            <div className="relative bg-gradient-to-r from-slate-900 via-slate-900 to-purple-950/30 backdrop-blur border border-transparent rounded-2xl p-6 overflow-hidden">
+                                {/* Background effects */}
+                                <div className="absolute inset-0 overflow-hidden pointer-events-none">
+                                    <div className="absolute top-4 right-8 opacity-30 group-hover:opacity-60 transition-opacity">
+                                        <Sparkles className="w-4 h-4 text-purple-400 animate-pulse" />
+                                    </div>
+                                    <div className="absolute top-12 right-16 opacity-20 group-hover:opacity-50 transition-opacity" style={{ animationDelay: '0.5s' }}>
+                                        <Sparkles className="w-3 h-3 text-pink-400 animate-pulse" />
+                                    </div>
+                                    <div className="absolute -top-20 -right-20 w-40 h-40 bg-purple-500/10 rounded-full blur-3xl group-hover:bg-purple-500/20 transition-all" />
+                                </div>
+
+                                <div className="relative flex flex-col md:flex-row md:items-center gap-4">
+                                    <div className="flex items-center gap-4 flex-shrink-0">
+                                        <div className="relative">
+                                            <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-purple-500 via-pink-500 to-cyan-500 flex items-center justify-center shadow-lg shadow-purple-500/30">
+                                                <Wand2 className="w-7 h-7 text-white" />
+                                            </div>
+                                            <div className="absolute -top-1 -right-1 w-4 h-4 bg-yellow-400 rounded-full flex items-center justify-center animate-pulse">
+                                                <span className="text-[8px] font-bold text-yellow-900">AI</span>
+                                            </div>
+                                        </div>
+                                        <div className="text-left">
+                                            <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                                                <span className="bg-gradient-to-r from-purple-300 via-pink-300 to-cyan-300 bg-clip-text text-transparent">
+                                                    Quick Start with AI
+                                                </span>
+                                            </h3>
+                                            <p className="text-sm text-slate-400">Paste a link and let AI analyze it instantly</p>
+                                        </div>
+                                    </div>
+
+                                    <div className="flex-1 flex gap-3">
+                                        <div className="flex-1 relative group/input">
+                                            <div className="absolute -inset-[1px] bg-gradient-to-r from-purple-500/50 to-pink-500/50 rounded-xl opacity-0 group-focus-within/input:opacity-100 blur-sm transition-opacity" />
+                                            <div className="relative flex items-center">
+                                                <Link className="absolute left-4 w-4 h-4 text-slate-500" />
+                                                <input
+                                                    type="text"
+                                                    value={pasteUrl}
+                                                    onChange={(e) => setPasteUrl(e.target.value)}
+                                                    placeholder="Paste TikTok, Instagram, or YouTube URL..."
+                                                    disabled={isCreatingFromLink}
+                                                    onKeyDown={(e) => {
+                                                        if (e.key === "Enter" && !isCreatingFromLink && pasteUrl.trim()) {
+                                                            handleCreateFromLink();
+                                                        }
+                                                    }}
+                                                    className="w-full pl-11 pr-4 py-3.5 text-sm bg-slate-800/80 border border-slate-700/50 rounded-xl text-slate-200 placeholder-slate-500 focus:outline-none focus:border-purple-500/50 focus:bg-slate-800 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                                                />
+                                            </div>
+                                        </div>
+                                        <button
+                                            onClick={handleCreateFromLink}
+                                            disabled={isCreatingFromLink || !pasteUrl.trim()}
+                                            className="relative px-6 py-3.5 bg-gradient-to-r from-purple-600 via-pink-600 to-cyan-600 hover:from-purple-500 hover:via-pink-500 hover:to-cyan-500 text-white text-sm font-bold rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 shadow-lg shadow-purple-500/25 hover:shadow-purple-500/40 hover:scale-[1.02] active:scale-[0.98]"
+                                        >
+                                            {isCreatingFromLink ? (
+                                                <>
+                                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                                    Creating...
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <Sparkles className="w-4 h-4" />
+                                                    Analyze
+                                                    <ArrowRight className="w-4 h-4" />
+                                                </>
+                                            )}
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {/* Platform badges */}
+                                <div className="relative flex items-center justify-center gap-4 mt-4 pt-4 border-t border-slate-800/50">
+                                    <span className="text-xs text-slate-500">Works with:</span>
+                                    {['TikTok', 'Instagram', 'YouTube'].map((platform) => (
+                                        <span key={platform} className="text-xs text-slate-400 font-medium px-2 py-1 bg-slate-800/50 rounded-md">
+                                            {platform}
+                                        </span>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+
                         {/* Create New Project Card */}
                         <button 
                             onClick={() => setIsCreating(true)}
                             className="w-full mb-6 group"
                         >
-                            <div className="flex items-center gap-6 p-6 bg-gradient-to-r from-purple-900/20 to-slate-900/50 backdrop-blur border border-purple-500/20 rounded-2xl hover:border-purple-500/40 transition-all duration-300 hover:shadow-lg hover:shadow-purple-500/10">
-                                <div className="flex-shrink-0 w-16 h-16 rounded-xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center shadow-lg shadow-purple-500/25 group-hover:scale-105 transition-transform duration-300">
-                                    <Plus className="w-8 h-8 text-white" />
+                            <div className="flex items-center gap-6 p-6 bg-gradient-to-r from-slate-900/50 to-slate-900/30 backdrop-blur border border-slate-700/30 rounded-2xl hover:border-slate-600/50 transition-all duration-300 hover:shadow-lg hover:shadow-slate-500/5">
+                                <div className="flex-shrink-0 w-16 h-16 rounded-xl bg-slate-800 flex items-center justify-center group-hover:scale-105 transition-transform duration-300">
+                                    <Plus className="w-8 h-8 text-slate-400" />
                                 </div>
                                 <div className="text-left">
                                     <h3 className="text-xl font-semibold text-white mb-1 flex items-center gap-2">
-                                        Create New Project
-                                        <Sparkles className="w-5 h-5 text-purple-400" />
+                                        Create Blank Project
                                     </h3>
-                                    <p className="text-slate-400">Start a fresh video editing project</p>
+                                    <p className="text-slate-400">Start from scratch with a fresh canvas</p>
                                 </div>
                             </div>
                         </button>
@@ -404,13 +611,13 @@ export default function Page() {
                             </div>
                         ) : (
                             <div className="space-y-4">
-                                {sortedProjects.map((project) => (
-                                    <Link 
-                                        key={project.id}
-                                        href={`/projects/${project.id}`}
-                                        onClick={() => dispatch(setCurrentProject(project.id))}
-                                        className="block group"
-                                    >
+{sortedProjects.map((project) => (
+                                                    <NextLink 
+                                                        key={project.id}
+                                                        href={`/projects/${project.id}`}
+                                                        onClick={() => dispatch(setCurrentProject(project.id))}
+                                                        className="block group"
+                                                    >
                                         <div className="flex flex-col md:flex-row gap-5 p-5 bg-slate-900/50 backdrop-blur border border-slate-800 rounded-2xl hover:border-slate-700 hover:bg-slate-900/70 transition-all duration-300">
                                             {/* Thumbnail */}
                                             <div className="w-full md:w-72 flex-shrink-0">
@@ -465,11 +672,11 @@ export default function Page() {
                                                         )}
                                                     </button>
                                                 </div>
+                                                </div>
+                                                        </div>
+                                                    </NextLink>
+                                                ))}
                                             </div>
-                                        </div>
-                                    </Link>
-                                ))}
-                            </div>
                         )}
                     </>
                 )}

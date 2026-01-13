@@ -5,11 +5,7 @@ import { FFmpeg } from "@ffmpeg/ffmpeg";
 import { toBlobURL } from "@ffmpeg/util";
 import FfmpegRender from "./Ffmpeg/FfmpegRender";
 
-interface GenerateVideoButtonProps {
-    variations: number;
-}
-
-export default function GenerateVideoButton({ variations }: GenerateVideoButtonProps) {
+export default function GenerateVideoButton() {
     const [loadFfmpeg, setLoadedFfmpeg] = useState(false);
     const ffmpegRef = useRef<FFmpeg>(new FFmpeg());
     const [logMessages, setLogMessages] = useState<string>("");
@@ -40,7 +36,6 @@ export default function GenerateVideoButton({ variations }: GenerateVideoButtonP
                 loadFfmpeg={loadFfmpeg}
                 logMessages={logMessages}
                 ffmpeg={ffmpegRef.current}
-                variations={variations}
             />
         </div>
     );

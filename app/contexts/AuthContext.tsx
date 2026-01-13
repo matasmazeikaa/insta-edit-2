@@ -5,6 +5,7 @@ import { User } from '@supabase/supabase-js'
 import { createClient } from '../utils/supabase/client'
 import { useRouter } from 'next/navigation'
 import { checkAIUsage, UsageInfo } from '../services/subscriptionService'
+import { clearAllProjects, clearAllFiles } from '../store'
 
 interface AuthContextType {
   user: User | null
@@ -119,6 +120,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Clear caches
     usageCache = null
     setUsageInfo(null)
+    // Clear local IndexedDB to prevent data leakage between accounts
+    await clearAllProjects()
+    await clearAllFiles()
     router.push('/login')
   }
 

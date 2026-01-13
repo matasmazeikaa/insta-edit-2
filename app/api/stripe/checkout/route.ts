@@ -4,6 +4,20 @@ import { createClient } from '@/app/utils/supabase/server';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
+// Get the base URL for redirects
+function getBaseUrl(request: NextRequest): string {
+  // Use explicit app URL if set (recommended for production)
+  if (process.env.NEXT_PUBLIC_APP_URL) {
+    return process.env.NEXT_PUBLIC_APP_URL;
+  }
+  // Vercel sets this automatically
+  if (process.env.VERCEL_URL) {
+    return `https://${process.env.VERCEL_URL}`;
+  }
+  // Fallback to request origin
+  return request.nextUrl.origin;
+}
+
 export async function POST(request: NextRequest) {
   try {
     const supabase = await createClient();
@@ -14,8 +28,9 @@ export async function POST(request: NextRequest) {
     }
 
     const { priceId } = await request.json();
+    const baseUrl = getBaseUrl(request);
 
-    console.log('Checkout request - priceId:', priceId);
+    console.log('Checkout request - priceId:', priceId, 'baseUrl:', baseUrl);
 
     if (!priceId) {
       return NextResponse.json({ error: 'Price ID is required' }, { status: 400 });
@@ -73,8 +88,8 @@ export async function POST(request: NextRequest) {
           quantity: 1,
         },
       ],
-      success_url: `${request.nextUrl.origin}/subscription?success=true`,
-      cancel_url: `${request.nextUrl.origin}/subscription?canceled=true`,
+      success_url: `${baseUrl}/subscription?success=true`,
+      cancel_url: `${baseUrl}/subscription?canceled=true`,
       subscription_data: {
         metadata: {
           supabaseUserId: user.id,

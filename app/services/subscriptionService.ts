@@ -103,6 +103,12 @@ export const PRICE_IDS = {
   yearly: process.env.NEXT_PUBLIC_STRIPE_PRICE_YEARLY || 'price_yearly',
 };
 
+// Storage limits in bytes
+export const STORAGE_LIMITS = {
+  free: 5 * 1024 * 1024 * 1024, // 5GB
+  pro: 100 * 1024 * 1024 * 1024, // 100GB
+};
+
 export const PLANS = {
   free: {
     name: 'Free',
@@ -112,6 +118,7 @@ export const PLANS = {
       'Basic video editing',
       'Export in 720p',
       'Community support',
+      '5GB storage',
     ],
     limitations: [
       'Limited AI features',
@@ -128,9 +135,89 @@ export const PLANS = {
       'Export in 4K',
       'Priority support',
       'No watermarks',
-      'Cloud storage for projects',
+      '100GB cloud storage',
       'Advanced AI features',
     ],
   },
 };
 
+/**
+ * Format bytes to human readable string
+ */
+export function formatBytes(bytes: number, decimals: number = 2): string {
+  if (bytes === 0) return '0 Bytes';
+
+  const k = 1024;
+  const dm = decimals < 0 ? 0 : decimals;
+  const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+}
+
+/**
+ * Get storage limit based on subscription status
+ */
+export function getStorageLimit(isPremium: boolean): number {
+  return isPremium ? STORAGE_LIMITS.pro : STORAGE_LIMITS.free;
+}
+
+export interface StorageLimitInfo {
+  isPremium: boolean;
+  usedBytes: number;
+  limitBytes: number;
+  remainingBytes: number;
+  usagePercentage: number;
+  fileCount: number;
+  maxFileSize: number;
+}
+
+export interface UploadValidation {
+  canUpload: boolean;
+  error?: string;
+  usedBytes: number;
+  limitBytes: number;
+  remainingBytes: number;
+  newTotalAfterUpload?: number;
+}
+
+/**
+ * Check storage limit from backend (server-side validation)
+ */
+export async function checkStorageLimit(): Promise<StorageLimitInfo> {
+  const response = await fetch('/api/storage/check-limit');
+  
+  if (!response.ok) {
+    throw new Error('Failed to check storage limit');
+  }
+  
+  return response.json();
+}
+
+/**
+ * Validate if a file can be uploaded (server-side validation)
+ */
+export async function validateUpload(fileSize: number): Promise<UploadValidation> {
+  const response = await fetch('/api/storage/check-limit', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ fileSize }),
+  });
+  
+  const data = await response.json();
+  
+  if (!response.ok) {
+    return {
+      canUpload: false,
+      error: data.error || 'Failed to validate upload',
+      usedBytes: data.usedBytes || 0,
+      limitBytes: data.limitBytes || 0,
+      remainingBytes: data.remainingBytes || 0,
+    };
+  }
+  
+  return data;
+}

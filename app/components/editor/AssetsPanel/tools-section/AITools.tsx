@@ -51,7 +51,7 @@ function AILoadingModal({ isOpen, stage }: { isOpen: boolean; stage: 'downloadin
 
   return (
     <div 
-      className="fixed z-[9999] flex items-center justify-center"
+      className="fixed z-[9999] flex items-center justify-center w-full h-full"
       style={{
         top: 0,
         left: 0,

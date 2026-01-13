@@ -15,6 +15,17 @@ function getUserFolderPath(userId: string): string {
 }
 
 /**
+ * Construct the storage filename from fileId and original filename
+ * Format: {fileId}--{base64EncodedOriginalName}.{ext}
+ */
+function constructStorageFileName(fileId: string, originalFileName: string): string {
+    const fileExt = originalFileName.split('.').pop() || 'mp4';
+    const originalNameWithoutExt = originalFileName.replace(/\.[^/.]+$/, '');
+    const encodedName = btoa(encodeURIComponent(originalNameWithoutExt));
+    return `${fileId}--${encodedName}.${fileExt}`;
+}
+
+/**
  * Upload a file to Supabase storage in the user's folder
  */
 export async function uploadMediaFile(
@@ -102,9 +113,22 @@ export async function listUserMediaFiles(userId: string): Promise<LibraryItem[]>
             return [];
         }
 
+        // Filter out placeholder files and hidden files
+        const filteredData = data.filter(file => {
+            // Skip hidden files (starting with .)
+            if (file.name.startsWith('.')) return false;
+            // Skip empty folder placeholder
+            if (file.name === '.emptyFolderPlaceholder') return false;
+            return true;
+        });
+
+        if (filteredData.length === 0) {
+            return [];
+        }
+
         // Get signed URLs for all files (for private bucket)
         const libraryItems: LibraryItem[] = await Promise.all(
-            data.map(async (file) => {
+            filteredData.map(async (file) => {
                 const filePath = `${userFolder}/${file.name}`;
                 
                 // Generate signed URL for private bucket (valid for 1 hour)
@@ -112,9 +136,6 @@ export async function listUserMediaFiles(userId: string): Promise<LibraryItem[]>
                     .from(STORAGE_BUCKET)
                     .createSignedUrl(filePath, 3600); // 1 hour expiry
 
-                // Extract file ID from filename (format: {id}.{ext})
-                const fileId = file.name.split('.')[0];
-                
                 // Determine media type from file name/extension
                 const fileExt = file.name.split('.').pop()?.toLowerCase() || '';
                 let mediaType: MediaType = 'unknown';
@@ -126,9 +147,30 @@ export async function listUserMediaFiles(userId: string): Promise<LibraryItem[]>
                     mediaType = 'image';
                 }
 
+                // Parse filename - new format: {fileId}--{encodedOriginalName}.{ext}
+                // Old format: {fileId}.{ext}
+                const nameWithoutExt = file.name.replace(/\.[^/.]+$/, '');
+                let fileId: string;
+                let originalName: string;
+                
+                if (nameWithoutExt.includes('--')) {
+                    // New format with encoded original name
+                    const [id, encodedName] = nameWithoutExt.split('--');
+                    fileId = id;
+                    try {
+                        originalName = decodeURIComponent(atob(encodedName)) + '.' + fileExt;
+                    } catch {
+                        originalName = file.name; // Fallback if decoding fails
+                    }
+                } else {
+                    // Old format - just the fileId
+                    fileId = nameWithoutExt;
+                    originalName = file.metadata?.originalName || file.name;
+                }
+
                 return {
                     id: fileId,
-                    name: file.name,
+                    name: originalName,
                     url: signedUrlData?.signedUrl || '',
                     status: urlError ? 'error' as const : 'completed',
                     type: mediaType,
@@ -152,15 +194,24 @@ export async function deleteMediaFile(fileId: string, userId: string, fileName: 
     const supabase = createClient();
     const userFolder = getUserFolderPath(userId);
     
-    // Extract extension from original filename or use the stored filename
+    // Try new format first, then fallback to old format
+    const newFormatFileName = constructStorageFileName(fileId, fileName);
     const fileExt = fileName.split('.').pop() || 'mp4';
-    const storedFileName = `${fileId}.${fileExt}`;
-    const filePath = `${userFolder}/${storedFileName}`;
+    const oldFormatFileName = `${fileId}.${fileExt}`;
 
     try {
-        const { error } = await supabase.storage
+        // Try deleting with new format
+        let { error } = await supabase.storage
             .from(STORAGE_BUCKET)
-            .remove([filePath]);
+            .remove([`${userFolder}/${newFormatFileName}`]);
+
+        // If new format fails, try old format
+        if (error) {
+            const result = await supabase.storage
+                .from(STORAGE_BUCKET)
+                .remove([`${userFolder}/${oldFormatFileName}`]);
+            error = result.error;
+        }
 
         if (error) {
             throw error;
@@ -178,13 +229,25 @@ export async function deleteMediaFile(fileId: string, userId: string, fileName: 
 export async function getSignedUrl(fileId: string, userId: string, fileName: string): Promise<string> {
     const supabase = createClient();
     const userFolder = getUserFolderPath(userId);
+    
+    // Try new format first, then fallback to old format
+    const newFormatFileName = constructStorageFileName(fileId, fileName);
     const fileExt = fileName.split('.').pop() || 'mp4';
-    const storedFileName = `${fileId}.${fileExt}`;
-    const filePath = `${userFolder}/${storedFileName}`;
+    const oldFormatFileName = `${fileId}.${fileExt}`;
 
-    const { data, error } = await supabase.storage
+    // Try new format
+    let { data, error } = await supabase.storage
         .from(STORAGE_BUCKET)
-        .createSignedUrl(filePath, 3600); // 1 hour expiry
+        .createSignedUrl(`${userFolder}/${newFormatFileName}`, 3600);
+
+    // If new format fails, try old format
+    if (error || !data) {
+        const result = await supabase.storage
+            .from(STORAGE_BUCKET)
+            .createSignedUrl(`${userFolder}/${oldFormatFileName}`, 3600);
+        data = result.data;
+        error = result.error;
+    }
 
     if (error) {
         throw error;
@@ -205,18 +268,25 @@ export async function downloadMediaFile(libraryItem: LibraryItem, userId: string
     const supabase = createClient();
     const userFolder = getUserFolderPath(userId);
     
-    // Reconstruct the stored file path
-    // The file is stored as {fileId}.{ext} in the user's folder
-    // Extract extension from the original filename or use the stored filename
+    // Try new format first, then fallback to old format
+    const newFormatFileName = constructStorageFileName(libraryItem.id, libraryItem.name);
     const fileExt = libraryItem.name.split('.').pop() || 'mp4';
-    const storedFileName = `${libraryItem.id}.${fileExt}`;
-    const filePath = `${userFolder}/${storedFileName}`;
+    const oldFormatFileName = `${libraryItem.id}.${fileExt}`;
 
     try {
-        // Download file from Supabase storage
-        const { data, error } = await supabase.storage
+        // Try downloading with new format
+        let { data, error } = await supabase.storage
             .from(STORAGE_BUCKET)
-            .download(filePath);
+            .download(`${userFolder}/${newFormatFileName}`);
+
+        // If new format fails, try old format
+        if (error || !data) {
+            const result = await supabase.storage
+                .from(STORAGE_BUCKET)
+                .download(`${userFolder}/${oldFormatFileName}`);
+            data = result.data;
+            error = result.error;
+        }
 
         if (error) {
             throw error;
@@ -277,3 +347,53 @@ export async function downloadMediaFileById(
     }
 }
 
+export interface StorageUsageInfo {
+    usedBytes: number;
+    fileCount: number;
+}
+
+/**
+ * Get the total storage usage for a user
+ * Returns the total size of all files in bytes and the file count
+ */
+export async function getUserStorageUsage(userId: string): Promise<StorageUsageInfo> {
+    const supabase = createClient();
+    const userFolder = getUserFolderPath(userId);
+
+    try {
+        const { data, error } = await supabase.storage
+            .from(STORAGE_BUCKET)
+            .list(userFolder, {
+                limit: 1000, // High limit to get all files
+                offset: 0,
+            });
+
+        if (error) {
+            throw error;
+        }
+
+        if (!data || data.length === 0) {
+            return { usedBytes: 0, fileCount: 0 };
+        }
+
+        // Filter out placeholder files and hidden files
+        const filteredData = data.filter(file => !file.name.startsWith('.'));
+
+        // Calculate total size from file metadata
+        let totalBytes = 0;
+        for (const file of filteredData) {
+            // File metadata contains the size
+            if (file.metadata?.size) {
+                totalBytes += file.metadata.size;
+            }
+        }
+
+        return {
+            usedBytes: totalBytes,
+            fileCount: filteredData.length,
+        };
+    } catch (error: any) {
+        console.error('Error getting storage usage:', error);
+        return { usedBytes: 0, fileCount: 0 };
+    }
+}

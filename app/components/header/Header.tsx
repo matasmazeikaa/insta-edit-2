@@ -30,7 +30,7 @@ export default function Header() {
         }
     };
 
-    const navLinks = [
+    const navLinks: { href: string; icon: React.ComponentType<{ className?: string }>; label: string }[] = [
     ];
 
     return (

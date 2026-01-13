@@ -37,6 +37,10 @@ const projectsSlice = createSlice({
         rehydrateProjects: (state, action: PayloadAction<ProjectState[]>) => {
             state.projects = action.payload;
         },
+        clearProjects: (state) => {
+            state.projects = [];
+            state.currentProjectId = null;
+        },
     },
 });
 
@@ -46,6 +50,7 @@ export const {
     deleteProject,
     setCurrentProject,
     rehydrateProjects,
+    clearProjects,
 } = projectsSlice.actions;
 
 export default projectsSlice.reducer; 

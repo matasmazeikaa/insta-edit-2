@@ -65,7 +65,7 @@ export default function UpgradeModal({
               AI Limit Reached
             </h2>
             <p className="text-slate-400">
-              You've used all {limitCount} free AI generations this month.
+              You&apos;ve used all {limitCount} free AI generations this month.
             </p>
           </div>
 

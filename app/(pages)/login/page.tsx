@@ -1,11 +1,12 @@
 'use client'
 
-import { useEffect } from 'react'
+import { Suspense, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useAuth } from '../../contexts/AuthContext'
 import toast from 'react-hot-toast'
+import { Zap, Sparkles, ArrowRight, Film, Wand2 } from 'lucide-react'
 
-export default function LoginPage() {
+function LoginPageContent() {
   const { user, loading, signInWithGoogle } = useAuth()
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -38,8 +39,8 @@ export default function LoginPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-darkSurfacePrimary">
-        <div className="text-white">Loading...</div>
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950">
+        <div className="w-8 h-8 border-2 border-purple-500 border-t-transparent rounded-full animate-spin" />
       </div>
     )
   }
@@ -49,28 +50,43 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-darkSurfacePrimary px-4">
-      <div className="w-full max-w-md space-y-8">
-        <div className="text-center">
-          <h1 className="text-4xl font-bold text-white mb-2">CopyViral</h1>
-          <p className="text-gray-400">Sign in to continue</p>
+    <div className="min-h-screen -mt-16 bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 flex items-center justify-center px-4 relative overflow-hidden">
+      {/* Background effects */}
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-purple-900/20 via-transparent to-transparent pointer-events-none" />
+      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[400px] bg-purple-600/10 blur-[120px] rounded-full pointer-events-none" />
+      <div className="absolute bottom-0 right-1/4 w-[600px] h-[300px] bg-pink-600/5 blur-[100px] rounded-full pointer-events-none" />
+      
+      <div className="relative w-full max-w-md">
+        {/* Logo & Header */}
+        <div className="text-center mb-8">
+          <div className="flex justify-center mb-6">
+            <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center shadow-lg shadow-purple-500/30">
+              <Zap className="w-8 h-8 text-white" fill="white" />
+            </div>
+          </div>
+          <h1 className="text-4xl font-bold text-white mb-2">
+            Welcome to <span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-400">CopyViral</span>
+          </h1>
+          <p className="text-slate-400 text-lg">Sign in to start creating viral videos</p>
         </div>
 
+        {/* Error Alert */}
         {error && (
-          <div className="bg-red-500/10 border border-red-500/50 rounded-lg p-4">
-            <p className="text-red-400 text-sm font-medium mb-2">Authentication Error</p>
-            <p className="text-red-300 text-xs">
+          <div className="mb-6 bg-red-500/10 border border-red-500/30 backdrop-blur rounded-xl p-4">
+            <p className="text-red-400 text-sm font-medium mb-1">Authentication Error</p>
+            <p className="text-red-300/80 text-xs">
               {errorDescription 
                 ? decodeURIComponent(errorDescription)
-                : 'Please check your Supabase configuration. Ensure the redirect URL is set correctly in your Supabase dashboard.'}
+                : 'Please check your configuration and try again.'}
             </p>
           </div>
         )}
 
-        <div className="bg-darkSurfaceSecondary rounded-lg p-8 shadow-lg border border-white border-opacity-10">
+        {/* Login Card */}
+        <div className="bg-slate-900/50 backdrop-blur border border-slate-800 rounded-2xl p-8 shadow-xl">
           <button
             onClick={handleGoogleSignIn}
-            className="w-full flex items-center justify-center gap-3 bg-white text-gray-800 hover:bg-gray-100 font-medium py-3 px-4 rounded-lg transition-colors"
+            className="w-full flex items-center justify-center gap-3 bg-white hover:bg-slate-100 text-slate-800 font-semibold py-4 px-6 rounded-xl transition-all duration-200 shadow-lg hover:shadow-xl hover:scale-[1.02] active:scale-[0.98]"
           >
             <svg
               className="w-5 h-5"
@@ -97,13 +113,57 @@ export default function LoginPage() {
             </svg>
             Continue with Google
           </button>
+
+          {/* Divider */}
+          <div className="flex items-center gap-4 my-6">
+            <div className="flex-1 h-px bg-slate-700" />
+            <span className="text-slate-500 text-sm">or</span>
+            <div className="flex-1 h-px bg-slate-700" />
+          </div>
+
+          {/* Features preview */}
+          <div className="space-y-3">
+            <div className="flex items-center gap-3 text-slate-400">
+              <div className="w-8 h-8 rounded-lg bg-purple-500/10 flex items-center justify-center">
+                <Wand2 className="w-4 h-4 text-purple-400" />
+              </div>
+              <span className="text-sm">AI-powered video analysis</span>
+            </div>
+            <div className="flex items-center gap-3 text-slate-400">
+              <div className="w-8 h-8 rounded-lg bg-purple-500/10 flex items-center justify-center">
+                <Film className="w-4 h-4 text-purple-400" />
+              </div>
+              <span className="text-sm">Copy viral video styles instantly</span>
+            </div>
+            <div className="flex items-center gap-3 text-slate-400">
+              <div className="w-8 h-8 rounded-lg bg-purple-500/10 flex items-center justify-center">
+                <Sparkles className="w-4 h-4 text-purple-400" />
+              </div>
+              <span className="text-sm">Create trending content effortlessly</span>
+            </div>
+          </div>
         </div>
 
-        <p className="text-center text-sm text-gray-500">
-          By signing in, you agree to our Terms of Service and Privacy Policy
+        {/* Footer text */}
+        <p className="text-center text-sm text-slate-500 mt-6">
+          By signing in, you agree to our{' '}
+          <a href="#" className="text-purple-400 hover:text-purple-300 transition-colors">Terms of Service</a>
+          {' '}and{' '}
+          <a href="#" className="text-purple-400 hover:text-purple-300 transition-colors">Privacy Policy</a>
         </p>
       </div>
     </div>
   )
 }
 
+export default function LoginPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950">
+        <div className="w-8 h-8 border-2 border-purple-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    }>
+      <LoginPageContent />
+    </Suspense>
+  )
+}

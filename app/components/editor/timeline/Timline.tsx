@@ -329,11 +329,12 @@ export const Timeline = () => {
             
             // Track magnet: If it's a video clip, move subsequent clips to fill the gap
             if ('type' in deletedElement && deletedElement.type === 'video') {
-                const deletedDuration = deletedElement.positionEnd - deletedElement.positionStart;
+                const deletedPositionStart = deletedElement.positionStart;
+                const deletedDuration = deletedElement.positionEnd - deletedPositionStart;
                 
                 // Find clips that come after the deleted clip and shift them left
                 updatedMediaFiles = updatedMediaFiles.map((el) => {
-                    if ('type' in el && el.type === 'video' && el.positionStart > deletedElement.positionStart) {
+                    if ('type' in el && el.type === 'video' && el.positionStart > deletedPositionStart) {
                         return {
                             ...el,
                             positionStart: Math.max(0, el.positionStart - deletedDuration),

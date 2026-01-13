@@ -14,7 +14,6 @@ export default function RightSidebar() {
     const dispatch = useAppDispatch();
     const [videoScale, setVideoScale] = useState<'fit' | 'fill'>('fill');
     const [manualScale, setManualScale] = useState(1);
-    const [variations, setVariations] = useState(1);
     const [timestampsOverlay, setTimestampsOverlay] = useState(false);
     const [editAllText, setEditAllText] = useState(false);
 
@@ -275,7 +274,7 @@ export default function RightSidebar() {
 
                 {/* Generate Video Button */}
                 <div>
-                    <GenerateVideoButton variations={variations} />
+                    <GenerateVideoButton />
                     <p className="text-[10px] text-slate-500 mt-2 text-center">
                         Downloads ready after generation
                     </p>

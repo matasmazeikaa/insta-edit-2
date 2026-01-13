@@ -2,17 +2,21 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { LibraryItem, MediaType } from "@/app/types";
-import { listUserMediaFiles } from "@/app/services/mediaLibraryService";
+import { listUserMediaFiles, deleteMediaFile } from "@/app/services/mediaLibraryService";
 import { useAuth } from "@/app/contexts/AuthContext";
-import { X, Loader2, Upload, CheckCircle, XCircle, Film, Image as ImageIcon, Music } from "lucide-react";
+import { X, Loader2, Upload, CheckCircle, XCircle, Film, Image as ImageIcon, Music, Trash2, HardDrive, Crown } from "lucide-react";
 import toast from "react-hot-toast";
 import { createClient } from "@/app/utils/supabase/client";
 import { categorizeFile } from "@/app/utils/utils";
+import { checkStorageLimit, validateUpload, formatBytes, StorageLimitInfo } from "@/app/services/subscriptionService";
 
-interface MediaLibraryModalProps {
+type LibraryType = 'media' | 'audio';
+
+interface LibraryModalProps {
     isOpen: boolean;
     onClose: () => void;
     onAddToTimeline: (items: LibraryItem[]) => void;
+    type: LibraryType;
 }
 
 interface UploadingFile {
@@ -28,19 +32,56 @@ interface UploadingFile {
 const STORAGE_BUCKET = 'media-library';
 const MAX_FILE_SIZE = 5 * 1024 * 1024 * 1024; // 5GB
 
-export function MediaLibraryModal({ isOpen, onClose, onAddToTimeline }: MediaLibraryModalProps) {
+const CONFIG = {
+    media: {
+        title: 'Media Library',
+        accept: 'video/*,image/*',
+        emptyMessage: 'No media files yet',
+        emptySubMessage: 'Upload videos and images to get started',
+        emptyIcon: Film,
+        filterFn: (item: LibraryItem) => item.type !== 'audio',
+    },
+    audio: {
+        title: 'Audio Library',
+        accept: 'audio/*',
+        emptyMessage: 'No audio files yet',
+        emptySubMessage: 'Upload audio files to get started',
+        emptyIcon: Music,
+        filterFn: (item: LibraryItem) => item.type === 'audio',
+    },
+};
+
+export function LibraryModal({ isOpen, onClose, onAddToTimeline, type }: LibraryModalProps) {
     const { user } = useAuth();
     const [items, setItems] = useState<LibraryItem[]>([]);
     const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
     const [isLoading, setIsLoading] = useState(false);
     const [uploadingFiles, setUploadingFiles] = useState<UploadingFile[]>([]);
+    const [deletingItems, setDeletingItems] = useState<Set<string>>(new Set());
+    const [isDeletingSelected, setIsDeletingSelected] = useState(false);
+    const [storageInfo, setStorageInfo] = useState<StorageLimitInfo | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
+
+    const config = CONFIG[type];
+    const usagePercentage = storageInfo ? Math.min((storageInfo.usedBytes / storageInfo.limitBytes) * 100, 100) : 0;
 
     useEffect(() => {
         if (isOpen && user) {
             loadLibraryItems();
+            loadStorageInfo();
         }
     }, [isOpen, user]);
+
+    const loadStorageInfo = async () => {
+        if (!user) return;
+        try {
+            // Get storage info from backend (includes subscription status)
+            const info = await checkStorageLimit();
+            setStorageInfo(info);
+        } catch (error) {
+            console.error('Error loading storage info:', error);
+        }
+    };
 
     // Clean up completed uploads after a delay
     useEffect(() => {
@@ -58,7 +99,8 @@ export function MediaLibraryModal({ isOpen, onClose, onAddToTimeline }: MediaLib
         setIsLoading(true);
         try {
             const libraryItems = await listUserMediaFiles(user.id);
-            setItems(libraryItems);
+            const filteredItems = libraryItems.filter(config.filterFn);
+            setItems(filteredItems);
         } catch (error) {
             console.error('Error loading library items:', error);
             toast.error('Failed to load library items');
@@ -97,14 +139,28 @@ export function MediaLibraryModal({ isOpen, onClose, onAddToTimeline }: MediaLib
         const userFolder = userId;
         const fileId = crypto.randomUUID();
         const fileExt = file.name.split('.').pop() || 'mp4';
-        const fileName = `${fileId}.${fileExt}`;
+        // Encode original filename (without extension) in the storage path for reliable retrieval
+        const originalNameWithoutExt = file.name.replace(/\.[^/.]+$/, '');
+        const encodedName = btoa(encodeURIComponent(originalNameWithoutExt));
+        const fileName = `${fileId}--${encodedName}.${fileExt}`;
         const filePath = `${userFolder}/${fileName}`;
 
-        // Check file size
-        if (file.size > MAX_FILE_SIZE) {
+        // Validate upload against server-side storage limits
+        try {
+            const validation = await validateUpload(file.size);
+            if (!validation.canUpload) {
+                setUploadingFiles(prev => prev.map(f => 
+                    f.id === uploadId 
+                        ? { ...f, status: 'error', error: validation.error || 'Upload not allowed' }
+                        : f
+                ));
+                return null;
+            }
+        } catch (validationError) {
+            console.error('Upload validation error:', validationError);
             setUploadingFiles(prev => prev.map(f => 
                 f.id === uploadId 
-                    ? { ...f, status: 'error', error: 'File exceeds 5GB limit' }
+                    ? { ...f, status: 'error', error: 'Failed to validate upload' }
                     : f
             ));
             return null;
@@ -149,6 +205,7 @@ export function MediaLibraryModal({ isOpen, onClose, onAddToTimeline }: MediaLib
                 xhr.open('POST', uploadUrl);
                 xhr.setRequestHeader('Authorization', `Bearer ${session.access_token}`);
                 xhr.setRequestHeader('x-upsert', 'false');
+                xhr.setRequestHeader('x-metadata', JSON.stringify({ originalName: file.name }));
                 xhr.send(file);
             });
 
@@ -221,8 +278,8 @@ export function MediaLibraryModal({ isOpen, onClose, onAddToTimeline }: MediaLib
 
         if (successCount > 0) {
             toast.success(`Successfully uploaded ${successCount} file${successCount > 1 ? 's' : ''}`);
-            // Reload library items
             await loadLibraryItems();
+            await loadStorageInfo(); // Refresh storage usage
         }
     };
 
@@ -234,8 +291,78 @@ export function MediaLibraryModal({ isOpen, onClose, onAddToTimeline }: MediaLib
         setUploadingFiles(prev => prev.filter(f => f.id !== uploadId));
     };
 
-    const getFileIcon = (type: MediaType) => {
-        switch (type) {
+    const handleDeleteItem = async (e: React.MouseEvent, item: LibraryItem) => {
+        e.stopPropagation();
+        
+        if (!user) return;
+        
+        setDeletingItems(prev => new Set(prev).add(item.id));
+        
+        try {
+            await deleteMediaFile(item.id, user.id, item.name);
+            setItems(prev => prev.filter(i => i.id !== item.id));
+            setSelectedItems(prev => {
+                const newSet = new Set(prev);
+                newSet.delete(item.id);
+                return newSet;
+            });
+            toast.success('File deleted successfully');
+            await loadStorageInfo(); // Refresh storage usage
+        } catch (error) {
+            console.error('Error deleting file:', error);
+            toast.error('Failed to delete file');
+        } finally {
+            setDeletingItems(prev => {
+                const newSet = new Set(prev);
+                newSet.delete(item.id);
+                return newSet;
+            });
+        }
+    };
+
+    const handleDeleteSelected = async () => {
+        if (!user || selectedItems.size === 0) return;
+        
+        setIsDeletingSelected(true);
+        
+        const itemsToDelete = items.filter(item => selectedItems.has(item.id));
+        const deletePromises = itemsToDelete.map(item => 
+            deleteMediaFile(item.id, user.id, item.name)
+                .then(() => ({ id: item.id, success: true }))
+                .catch(() => ({ id: item.id, success: false }))
+        );
+        
+        try {
+            const results = await Promise.all(deletePromises);
+            const successfulDeletes = results.filter(r => r.success).map(r => r.id);
+            const failedCount = results.filter(r => !r.success).length;
+            
+            if (successfulDeletes.length > 0) {
+                setItems(prev => prev.filter(item => !successfulDeletes.includes(item.id)));
+                setSelectedItems(new Set());
+            }
+            
+            if (failedCount === 0) {
+                toast.success(`Deleted ${successfulDeletes.length} file${successfulDeletes.length !== 1 ? 's' : ''}`);
+            } else if (successfulDeletes.length > 0) {
+                toast.success(`Deleted ${successfulDeletes.length} file${successfulDeletes.length !== 1 ? 's' : ''}, ${failedCount} failed`);
+            } else {
+                toast.error('Failed to delete files');
+            }
+            
+            if (successfulDeletes.length > 0) {
+                await loadStorageInfo(); // Refresh storage usage
+            }
+        } catch (error) {
+            console.error('Error deleting files:', error);
+            toast.error('Failed to delete files');
+        } finally {
+            setIsDeletingSelected(false);
+        }
+    };
+
+    const getFileIcon = (itemType: MediaType) => {
+        switch (itemType) {
             case 'video':
                 return <Film className="w-4 h-4" />;
             case 'image':
@@ -247,15 +374,79 @@ export function MediaLibraryModal({ isOpen, onClose, onAddToTimeline }: MediaLib
         }
     };
 
+    const renderItemPreview = (item: LibraryItem) => {
+        if (item.type === 'video') {
+            return (
+                <video
+                    src={item.url}
+                    className="w-full h-full object-cover rounded-t-lg"
+                    muted
+                />
+            );
+        }
+        if (item.type === 'image') {
+            return (
+                <img
+                    src={item.url}
+                    alt={item.name}
+                    className="w-full h-full object-cover rounded-t-lg"
+                />
+            );
+        }
+        if (item.type === 'audio') {
+            return <Music className="w-12 h-12 text-slate-500" />;
+        }
+        return <div className="text-slate-500 text-sm">{item.type}</div>;
+    };
+
     const isUploading = uploadingFiles.some(f => f.status === 'uploading');
+    const EmptyIcon = config.emptyIcon;
 
     if (!isOpen) return null;
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
             <div className="bg-[#0f172a] border border-slate-800 rounded-xl w-full max-w-4xl max-h-[80vh] flex flex-col">
+                {/* Header */}
                 <div className="flex items-center justify-between p-6 border-b border-slate-800">
-                    <h2 className="text-xl font-bold text-white">Media Library</h2>
+                    <div className="flex items-center gap-4">
+                        <h2 className="text-xl font-bold text-white">{config.title}</h2>
+                        {/* Storage Usage Indicator */}
+                        {storageInfo && (
+                            <div className="flex items-center gap-3 px-4 py-2 bg-slate-800/50 rounded-lg border border-slate-700/50">
+                                <HardDrive className="w-4 h-4 text-slate-400" />
+                                <div className="flex flex-col gap-1">
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-xs text-slate-400">
+                                            {formatBytes(storageInfo.usedBytes)} / {formatBytes(storageInfo.limitBytes)}
+                                        </span>
+                                        {storageInfo.isPremium ? (
+                                            <span className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                                                <Crown className="w-3 h-3" />
+                                                Pro
+                                            </span>
+                                        ) : (
+                                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-700 text-slate-400">
+                                                Free
+                                            </span>
+                                        )}
+                                    </div>
+                                    <div className="w-32 h-1.5 bg-slate-700 rounded-full overflow-hidden">
+                                        <div 
+                                            className={`h-full rounded-full transition-all duration-300 ${
+                                                usagePercentage > 90 
+                                                    ? 'bg-red-500' 
+                                                    : usagePercentage > 70 
+                                                        ? 'bg-amber-500' 
+                                                        : 'bg-emerald-500'
+                                            }`}
+                                            style={{ width: `${usagePercentage}%` }}
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                    </div>
                     <div className="flex items-center gap-3">
                         <button
                             onClick={handleUploadClick}
@@ -277,7 +468,7 @@ export function MediaLibraryModal({ isOpen, onClose, onAddToTimeline }: MediaLib
                         <input
                             ref={fileInputRef}
                             type="file"
-                            accept="video/*,image/*"
+                            accept={config.accept}
                             multiple
                             onChange={handleFileChange}
                             className="hidden"
@@ -306,7 +497,6 @@ export function MediaLibraryModal({ isOpen, onClose, onAddToTimeline }: MediaLib
                                             : 'bg-slate-800/50 border-slate-700'
                                     }`}
                                 >
-                                    {/* File type icon */}
                                     <div className={`flex-shrink-0 w-10 h-10 rounded-lg flex items-center justify-center ${
                                         upload.status === 'completed'
                                             ? 'bg-emerald-500/20 text-emerald-400'
@@ -323,7 +513,6 @@ export function MediaLibraryModal({ isOpen, onClose, onAddToTimeline }: MediaLib
                                         )}
                                     </div>
 
-                                    {/* File info and progress */}
                                     <div className="flex-1 min-w-0">
                                         <p className="text-xs text-slate-300 truncate font-medium" title={upload.name}>
                                             {upload.name}
@@ -352,7 +541,6 @@ export function MediaLibraryModal({ isOpen, onClose, onAddToTimeline }: MediaLib
                                         )}
                                     </div>
 
-                                    {/* Close button for errors */}
                                     {upload.status === 'error' && (
                                         <button
                                             onClick={() => removeUploadingFile(upload.id)}
@@ -367,14 +555,26 @@ export function MediaLibraryModal({ isOpen, onClose, onAddToTimeline }: MediaLib
                     </div>
                 )}
 
+                {/* Items Grid */}
                 <div className="flex-1 overflow-y-auto p-6">
                     {isLoading ? (
                         <div className="flex items-center justify-center py-12">
                             <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
                         </div>
                     ) : items.length === 0 ? (
-                        <div className="text-center py-12 text-slate-400">
-                            <p>No media files in library</p>
+                        <div className="flex flex-col items-center justify-center py-16">
+                            <div className="w-20 h-20 rounded-2xl bg-slate-800/80 border border-slate-700/50 flex items-center justify-center mb-6">
+                                {EmptyIcon && <EmptyIcon className="w-10 h-10 text-slate-500" />}
+                            </div>
+                            <p className="text-lg font-medium text-slate-300 mb-2">{config.emptyMessage}</p>
+                            <p className="text-sm text-slate-500 mb-6">{config.emptySubMessage}</p>
+                            <button
+                                onClick={handleUploadClick}
+                                className="flex items-center gap-2 px-5 py-2.5 text-sm bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors"
+                            >
+                                <Upload className="w-4 h-4" />
+                                <span>Upload Files</span>
+                            </button>
                         </div>
                     ) : (
                         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
@@ -389,26 +589,24 @@ export function MediaLibraryModal({ isOpen, onClose, onAddToTimeline }: MediaLib
                                     }`}
                                 >
                                     <div className="aspect-video bg-slate-800 rounded-t-lg flex items-center justify-center">
-                                        {item.type === 'video' ? (
-                                            <video
-                                                src={item.url}
-                                                className="w-full h-full object-cover rounded-t-lg"
-                                                muted
-                                            />
-                                        ) : item.type === 'image' ? (
-                                            <img
-                                                src={item.url}
-                                                alt={item.name}
-                                                className="w-full h-full object-cover rounded-t-lg"
-                                            />
-                                        ) : (
-                                            <div className="text-slate-500 text-sm">{item.type}</div>
-                                        )}
+                                        {renderItemPreview(item)}
                                     </div>
-                                    <div className="p-2">
-                                        <p className="text-xs text-slate-300 truncate" title={item.name}>
+                                    <div className="p-2 flex items-center justify-between gap-2">
+                                        <p className="text-xs text-slate-300 truncate flex-1" title={item.name}>
                                             {item.name}
                                         </p>
+                                        <button
+                                            onClick={(e) => handleDeleteItem(e, item)}
+                                            disabled={deletingItems.has(item.id)}
+                                            className="flex-shrink-0 p-1 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded transition-colors disabled:opacity-50"
+                                            title="Delete file"
+                                        >
+                                            {deletingItems.has(item.id) ? (
+                                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                            ) : (
+                                                <Trash2 className="w-3.5 h-3.5" />
+                                            )}
+                                        </button>
                                     </div>
                                     {selectedItems.has(item.id) && (
                                         <div className="absolute top-2 right-2 w-5 h-5 bg-blue-500 rounded-full flex items-center justify-center">
@@ -421,11 +619,31 @@ export function MediaLibraryModal({ isOpen, onClose, onAddToTimeline }: MediaLib
                     )}
                 </div>
 
+                {/* Footer */}
                 <div className="flex items-center justify-between p-6 border-t border-slate-800">
                     <span className="text-sm text-slate-400">
                         {selectedItems.size} item{selectedItems.size !== 1 ? 's' : ''} selected
                     </span>
                     <div className="flex gap-3">
+                        {selectedItems.size > 0 && (
+                            <button
+                                onClick={handleDeleteSelected}
+                                disabled={isDeletingSelected}
+                                className="flex items-center gap-2 px-4 py-2 text-sm bg-red-600 hover:bg-red-500 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                {isDeletingSelected ? (
+                                    <>
+                                        <Loader2 className="w-4 h-4 animate-spin" />
+                                        <span>Deleting...</span>
+                                    </>
+                                ) : (
+                                    <>
+                                        <Trash2 className="w-4 h-4" />
+                                        <span>Delete Selected</span>
+                                    </>
+                                )}
+                            </button>
+                        )}
                         <button
                             onClick={onClose}
                             className="px-4 py-2 text-sm text-slate-300 hover:text-white transition-colors"
@@ -444,4 +662,13 @@ export function MediaLibraryModal({ isOpen, onClose, onAddToTimeline }: MediaLib
             </div>
         </div>
     );
+}
+
+// Convenience wrapper components for backwards compatibility
+export function MediaLibraryModal(props: Omit<LibraryModalProps, 'type'>) {
+    return <LibraryModal {...props} type="media" />;
+}
+
+export function AudioLibraryModal(props: Omit<LibraryModalProps, 'type'>) {
+    return <LibraryModal {...props} type="audio" />;
 }

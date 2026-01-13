@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { Suspense, useEffect, useState, useRef } from 'react';
 import { useAuth } from '@/app/contexts/AuthContext';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { 
@@ -32,7 +32,10 @@ interface SubscriptionData {
 let subscriptionCache: { userId: string; data: SubscriptionData; timestamp: number } | null = null
 const CACHE_TTL = 5000 // 5 seconds
 
-export default function SubscriptionPage() {
+// Module-level flag to prevent duplicate toast notifications across remounts
+let hasHandledStripeRedirect = false;
+
+function SubscriptionPageContent() {
   const { user, loading: authLoading, usageInfo, refreshUsage } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -50,7 +53,17 @@ export default function SubscriptionPage() {
     const success = searchParams.get('success');
     const canceled = searchParams.get('canceled');
 
+    // Only handle once per redirect to prevent duplicate toasts
+    if (hasHandledStripeRedirect) {
+      // Reset flag after URL is cleaned (no params means we've navigated away from stripe callback)
+      if (!success && !canceled) {
+        hasHandledStripeRedirect = false;
+      }
+      return;
+    }
+
     if (success === 'true') {
+      hasHandledStripeRedirect = true;
       toast.success('Subscription activated! Welcome to Pro 🎉');
       // Clear caches to force refetch after subscription change
       subscriptionCache = null;
@@ -60,6 +73,7 @@ export default function SubscriptionPage() {
       // Clean URL
       router.replace('/subscription');
     } else if (canceled === 'true') {
+      hasHandledStripeRedirect = true;
       toast('Checkout canceled', { icon: '↩️' });
       router.replace('/subscription');
     }
@@ -129,7 +143,9 @@ export default function SubscriptionPage() {
     }
   };
 
-  if (authLoading || loading || (user && !usageInfo)) {
+  // Only wait for auth and subscription data, not usageInfo (which can fail)
+  // The page can still function with subscriptionData from Supabase
+  if (authLoading || loading) {
     return (
       <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 flex items-center justify-center">
         <Loader2 className="w-8 h-8 text-purple-500 animate-spin" />
@@ -137,6 +153,7 @@ export default function SubscriptionPage() {
     );
   }
 
+  // Derive premium status from either usageInfo or subscriptionData (fallback)
   const isPremium = usageInfo?.isPremium || subscriptionData?.subscriptionStatus === 'active';
   const periodEnd = subscriptionData?.subscriptionCurrentPeriodEnd 
     ? new Date(subscriptionData.subscriptionCurrentPeriodEnd).toLocaleDateString('en-US', {
@@ -410,3 +427,14 @@ export default function SubscriptionPage() {
   );
 }
 
+export default function SubscriptionPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 flex items-center justify-center">
+        <Loader2 className="w-8 h-8 text-purple-500 animate-spin" />
+      </div>
+    }>
+      <SubscriptionPageContent />
+    </Suspense>
+  );
+}

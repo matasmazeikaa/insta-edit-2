@@ -240,6 +240,28 @@ export const listProjects = async () => {
     }
 };
 
+export const clearAllProjects = async () => {
+    if (typeof window === 'undefined') return;
+    try {
+        const db = await setupDB();
+        if (!db) return;
+        await db.clear('projects');
+    } catch (error) {
+        console.error('Error clearing projects:', error);
+    }
+};
+
+export const clearAllFiles = async () => {
+    if (typeof window === 'undefined') return;
+    try {
+        const db = await setupDB();
+        if (!db) return;
+        await db.clear('files');
+    } catch (error) {
+        console.error('Error clearing files:', error);
+    }
+};
+
 const store = configureStore({
     reducer: {
         projectState: projectStateReducer,

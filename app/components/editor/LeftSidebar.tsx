@@ -9,8 +9,7 @@ import { MediaFile, LibraryItem, TextElement, MediaType } from "@/app/types";
 import { FileVideo, Crown, Zap, LayoutGrid, Upload, Library, Sparkles, Music, LogOut, Link as LinkIcon, Loader2, Trash2, Type, ArrowLeft } from "lucide-react";
 import AITools from "./AssetsPanel/tools-section/AITools";
 import MediaList from "./AssetsPanel/tools-section/MediaList";
-import { MediaLibraryModal } from "./AssetsPanel/MediaLibraryModal";
-import { AudioLibraryModal } from "./AssetsPanel/AudioLibraryModal";
+import { MediaLibraryModal, AudioLibraryModal } from "./AssetsPanel/LibraryModal";
 import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
 import { categorizeFile } from "@/app/utils/utils";
@@ -772,40 +771,36 @@ export default function LeftSidebar() {
                     )}
                 </div>
                 
-                {user && (
+                {user && !isPremium && (
                     <div className="mt-4 p-3 bg-slate-800/50 rounded-xl border border-slate-700/50">
                         <div className="flex items-center justify-between mb-2">
                             <span className="text-xs text-slate-400 font-semibold flex items-center gap-1">
                                 <Zap className="w-3 h-3 text-yellow-400" /> AI Credits
                             </span>
                             <span className="text-xs text-white font-mono">
-                                {isPremium ? '∞' : `${creditsUsed}/${creditsLimit}`}
+                                {creditsUsed}/{creditsLimit}
                             </span>
                         </div>
                         <div className="w-full h-1.5 bg-slate-700 rounded-full overflow-hidden">
                             <div 
                                 className={`h-full rounded-full transition-all ${
-                                    isPremium 
-                                        ? 'bg-gradient-to-r from-yellow-400 to-orange-500 w-full' 
-                                        : !canUseAI 
-                                            ? 'bg-gradient-to-r from-red-500 to-orange-500' 
-                                            : 'bg-blue-500'
+                                    !canUseAI 
+                                        ? 'bg-gradient-to-r from-red-500 to-orange-500' 
+                                        : 'bg-blue-500'
                                 }`}
-                                style={{ width: isPremium ? '100%' : `${Math.min((creditsUsed / creditsLimit) * 100, 100)}%` }}
+                                style={{ width: `${Math.min((creditsUsed / creditsLimit) * 100, 100)}%` }}
                             />
                         </div>
-                        {!isPremium && (
-                            <button 
-                                onClick={() => setShowUpgradeModal(true)}
-                                className={`w-full mt-3 py-1.5 text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1 ${
-                                    !canUseAI 
-                                        ? 'text-white bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 shadow-lg shadow-purple-500/25'
-                                        : 'text-yellow-300 bg-yellow-500/10 hover:bg-yellow-500/20 border border-yellow-500/30'
-                                }`}
-                            >
-                                <Crown className="w-3 h-3" /> {!canUseAI ? 'Unlock More AI Credits' : 'Upgrade to PRO'}
-                            </button>
-                        )}
+                        <button 
+                            onClick={() => setShowUpgradeModal(true)}
+                            className={`w-full mt-3 py-1.5 text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1 ${
+                                !canUseAI 
+                                    ? 'text-white bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 shadow-lg shadow-purple-500/25'
+                                    : 'text-yellow-300 bg-yellow-500/10 hover:bg-yellow-500/20 border border-yellow-500/30'
+                            }`}
+                        >
+                            <Crown className="w-3 h-3" /> {!canUseAI ? 'Unlock More AI Credits' : 'Upgrade to PRO'}
+                        </button>
                     </div>
                 )}
             </div>
@@ -842,14 +837,7 @@ export default function LeftSidebar() {
                 <div className="pb-4">
                     <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Audio Track</h2>
                     {!audioTrack ? (
-                        <div className="space-y-2">
-                            <label className="flex items-center justify-center w-full h-12 border border-slate-700 rounded-xl bg-slate-800/30 hover:bg-slate-800 cursor-pointer transition-all gap-2 group">
-                                <div className="w-6 h-6 rounded-full bg-slate-700 flex items-center justify-center group-hover:bg-blue-500/20 group-hover:text-blue-400 transition-colors">
-                                    <Upload className="w-3 h-3" />
-                                </div>
-                                <span className="text-xs text-slate-400 group-hover:text-slate-200">Upload Audio</span>
-                                <input type="file" accept="audio/*" className="hidden" onChange={handleUploadAudio} />
-                            </label>
+                        <div className="space-y-2"> 
                             <button 
                                 onClick={() => setIsAudioLibraryModalOpen(true)}
                                 className="flex items-center justify-center w-full h-12 border border-slate-700 rounded-xl bg-slate-800/30 hover:bg-slate-800 transition-all gap-2 group"
